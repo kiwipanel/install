@@ -8,10 +8,6 @@
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/b1233420d6264734b6c79190bf03c354)](https://app.codacy.com/gh/kiwipanel/kiwipanel/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 [![codecov](https://codecov.io/github/kiwipanel/kiwipanel/graph/badge.svg?token=LRQW6YYSOC)](https://codecov.io/github/kiwipanel/kiwipanel)
 
-<p align="center">
-  <img src="screenshot.png" alt="KiwiPanel Dashboard" width="600">
-</p>
-
 ## KiwiPanel
 
 ⚠️ WARNING: PRE-ALPHA RELEASE - DO NOT DEPLOY TO PRODUCTION
