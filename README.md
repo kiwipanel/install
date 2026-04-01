@@ -79,12 +79,12 @@ CentOS Stream and EOL distributions are not supported.
 
 **Option 1:**
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/kiwipanel/kiwipanel/main/install)
+bash <(curl -fsSL https://raw.githubusercontent.com/kiwipanel/install/main/install)
 ```
 
 **Option 2:**
 ```bash
-curl -sLO https://raw.githubusercontent.com/kiwipanel/kiwipanel/main/install && chmod +x install && sudo bash install
+curl -sLO https://raw.githubusercontent.com/kiwipanel/install/main/install && chmod +x install && sudo bash install
 ```
 
 ##### Port 8443:
