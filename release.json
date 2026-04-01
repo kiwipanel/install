@@ -2,52 +2,29 @@
   "schema": 2,
   "channels": {
     "stable": {
-      "latest": "0.7.3"
-    },
-    "beta": {
-      "latest": "0.1.4-beta.1"
+      "latest": "0.7.4"
     }
   },
   "releases": [
     {
-      "version": "0.7.3",
+      "version": "0.7.4",
       "channel": "stable",
-      "release_date": "2026-03-30",
+      "release_date": "2026-04-01",
       "os": "linux",
       "arch": "amd64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.7.3/kiwipanel-linux-amd64",
-      "sha256": "bacc738dd171e3861b40d703f13f32ccebfc83500cdee4dd84b5a4a420e52690",
-      "notes": "Release v0.7.3"
+      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.7.4/kiwipanel-linux-amd64",
+      "sha256": "69bcd3180f1fb694b0aef45ee31774be177d7e21ad365933f6e99474ecfc3397",
+      "notes": "Release v0.7.4"
     },
     {
-      "version": "0.7.3",
+      "version": "0.7.4",
       "channel": "stable",
-      "release_date": "2026-03-30",
+      "release_date": "2026-04-01",
       "os": "linux",
       "arch": "arm64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.7.3/kiwipanel-linux-arm64",
-      "sha256": "7012d63bd8b596672419d1f6045ffe19f70a891694a0a009d003a42ab60b30c6",
-      "notes": "Release v0.7.3"
-    },
-    {
-      "version": "0.4.0",
-      "channel": "stable",
-      "release_date": "2026-02-02",
-      "os": "linux",
-      "arch": "amd64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.4.0/kiwipanel-amd64",
-      "sha256": "sha256:42b56a6cefe89c063d98068c24ca5b5ddd557ab0b759445d6c427802d3872b20",
-      "notes": "New schema."
-    },
-    {
-      "version": "0.1.2",
-      "channel": "stable",
-      "release_date": "2026-01-13",
-      "os": "linux",
-      "arch": "amd64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.1.2/kiwipanel-amd",
-      "sha256": "3f9dbd012ad64816bea9eb0f59d1bd3e9289447d2668a5ed2029fd8b8b580481",
-      "notes": "Security fixes and performance improvements"
+      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.7.4/kiwipanel-linux-arm64",
+      "sha256": "3e0422899bb33519434a8abfcc6ec0d0647b175aeb9f97e1d00397656028e3a2",
+      "notes": "Release v0.7.4"
     }
   ]
 }
