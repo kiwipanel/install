@@ -1,0 +1,1075 @@
+#!/bin/bash
+######################################################################
+#                  KiwiPanel - a LOMP stack on Linux                 #
+#                                                                    #
+#                Author: Vuong Nguyen and contributors               #
+#                  Website: https://kiwipanel.org                    #
+#                             @since: 2025                           #
+#              Please do not remove copyright. Thanks!               #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+######################################################################
+# KiwiPanel Installer v0.1.5
+# To install KiwiPanel copy the following instruction and paste to the terminal:
+# Quick Install (copy and paste to terminal):
+# bash <(curl -fsSL https://raw.githubusercontent.com/kiwipanel/kiwipanel/main/install)
+#
+# Or download first:
+# curl -sLO https://raw.githubusercontent.com/kiwipanel/kiwipanel/main/install && chmod +x install && sudo bash install
+
+######################################################################
+# Check for sudo/root privileges######################################
+if [ "$(id -u)" -ne 0 ]; then
+    echo "❌ You should install KiwiPanel as root or using sudo command."
+    exit 1
+fi
+
+clear
+date
+export LANG="${LANG:-en_US.UTF-8}"
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+
+if command -v locale-gen >/dev/null 2>&1; then
+       locale-gen en_US.UTF-8 2>/dev/null || true
+fi
+
+# Stop on error
+set -euo pipefail
+trap 'LogError "Failed: command=\"$BASH_COMMAND\" line=$LINENO"' ERR
+trap 'Cleanup 2>/dev/null || true' EXIT
+
+# Create log file
+KIWIPANEL_DIR="/opt/kiwipanel"
+LOG_DIR="$KIWIPANEL_DIR/logs"
+LOG_FILE="$LOG_DIR/install.log"
+
+function log() {
+    local level="$1"
+    shift
+    local message="$*"
+    local ts
+
+    ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+    echo "$ts [$level] $message" >> "$LOG_FILE"
+}
+
+LogInfo()  { log INFO  "$@"; }
+LogWarn()  { log WARN  "$@"; }
+LogError() { log ERROR "$@"; }
+LogDebug() { [[ "$DEBUG" == "1" ]] && log DEBUG "$@"; }
+
+# Utilities ###########################################################
+PrintGreen() {
+    local GREEN=$'\e[0;32m'
+    local NC=$'\e[0m'
+    local content="$*"
+
+    printf "%b%s%b\n" "$GREEN" "$content" "$NC"
+    LogInfo "$content"
+}
+
+PrintInfo() {
+    local CYAN=$'\e[0;36m'
+    local NC=$'\e[0m'
+    local content="$*"
+
+    printf "\n%b%s%b\n" "$CYAN" "$content" "$NC"
+    LogInfo "$content"
+}
+
+PrintWarn() {
+    local YELLOW_BROWN=$'\e[38;5;179m'
+    local NC=$'\e[0m'
+    local content="$*"
+
+    printf "%bWarning: %s%b\n" "$YELLOW_BROWN" "$content" "$NC"
+    LogWarn "$content"
+}
+
+PrintRed() {
+    local RED=$'\e[0;31m'
+    local NC=$'\e[0m'
+    local content="$*"
+
+    printf "\n%bError: %s%b\n" "$RED" "$content" "$NC"
+    LogError "$content"
+}
+
+
+DEBUG=${DEBUG:-0}
+AUTO_UPGRADE=${AUTO_UPGRADE:-0}
+
+mkdir -p "$LOG_DIR" || {
+    echo "Failed to create log directory: $LOG_DIR"
+    exit 1
+}
+
+touch "$LOG_FILE" || {
+    echo "Failed to create log file: $LOG_FILE"
+    exit 1
+}
+
+chmod 750 "$KIWIPANEL_DIR" "$LOG_DIR" # rwx for owner+group only; no access for others (security requirement)
+chmod 640 "$LOG_FILE"
+
+
+function CheckFreshInstall() {
+    # Check if the service is known to systemd (Loaded, Masked, or Active)
+    local service_state
+    service_state=$(systemctl show -p LoadState --value kiwipanel.service)
+
+    # If state is ANYTHING other than "not-found", it is already installed
+    if [[ "$service_state" != "not-found" ]]; then
+        PrintRed "KiwiPanel service has already been installed. Abort installation."
+        PrintRed "Please install on a fresh compute or manually remove the existing service."
+        exit 1
+    else
+        PrintGreen "Welcome! Thanks for choosing KiwiPanel."
+    fi
+}
+
+function PreflightChecks() {
+    PrintInfo "==> Running pre-flight checks..."
+    # Internet check
+    if ! curl -s --max-time 5 https://google.com >/dev/null; then
+        PrintRed "No internet connection"
+        exit 1
+    fi
+
+    local missing=()
+
+    # Check binary dependencies
+    for cmd in curl wget unzip systemctl jq gpg; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing+=("$cmd")
+        fi
+    done
+
+    # Always ensure these packages are present (can't detect via command -v)
+    # gnupg is called gnupg2 on RHEL/Rocky/Alma
+    if command -v apt >/dev/null 2>&1; then
+        missing+=("gnupg")
+    else
+        missing+=("gnupg2")
+    fi
+    missing+=("ca-certificates")
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        PrintInfo "==> Installing missing dependencies: ${missing[*]}"
+        if command -v apt >/dev/null 2>&1; then
+            apt update -y
+            apt install -y "${missing[@]}"
+        elif command -v dnf >/dev/null 2>&1; then
+            dnf install -y "${missing[@]}"
+        elif command -v yum >/dev/null 2>&1; then
+            yum install -y "${missing[@]}"
+        else
+            PrintRed "Unsupported package manager. Install manually: ${missing[*]}"
+            exit 1
+        fi
+    fi
+}
+
+# Run initial checks
+CheckFreshInstall
+PreflightChecks
+
+
+# Configuration########################################################
+readonly KIWIPANEL_PORT=8443
+kiwipanel_passcode=""
+INSTALL_DIR="/opt/kiwipanel"
+TMP_BINARY="/tmp/kiwipanel-binary"
+TMP_AGENT_BINARY="/tmp/kiwipanel-agent-binary"
+TMP_ZIP="/tmp/kiwipanel-scaffold.zip"
+INSTALL_MARKER="/opt/kiwipanel/meta/.installed"
+
+# OS Detection Variables (set by LoadOsRelease)
+OS_ID=""
+OS_VERSION_MAJOR=""
+OS_LIKE=""
+OS_NAME=""
+LSWS_SERVICE=""
+
+# ------------------------------------------------------------------------------
+# Fetching install scripts
+# ------------------------------------------------------------------------------
+
+function DownloadPackage() {
+    # 1. Download architecture-independent scaffold (scripts, config, systemd, templates)
+    PrintInfo "==> Downloading KiwiPanel scaffold"
+    PrintInfo "    URL: $KIWIPANEL_SCAFFOLD_URL"
+    if ! curl -L --fail --retry 3 --retry-delay 2 "$KIWIPANEL_SCAFFOLD_URL" -o "$TMP_ZIP"; then
+        PrintRed "Failed to download KiwiPanel scaffold"
+        exit 1
+    fi
+
+    if [[ ! -s "$TMP_ZIP" ]]; then
+        PrintRed "Downloaded scaffold is empty"
+        exit 1
+    fi
+
+    # 2. Download architecture-specific binary
+    PrintInfo "==> Downloading KiwiPanel binary (${KIWIPANEL_ARCH})"
+
+    if [[ -z "${KIWIPANEL_DOWNLOAD_URL:-}" ]]; then
+        PrintRed "KIWIPANEL_DOWNLOAD_URL is not set. Did ShowVersion() run?"
+        exit 1
+    fi
+
+    PrintInfo "    URL: $KIWIPANEL_DOWNLOAD_URL"
+
+    if ! curl -L --fail --retry 3 --retry-delay 2 "$KIWIPANEL_DOWNLOAD_URL" -o "$TMP_BINARY"; then
+        PrintRed "Failed to download KiwiPanel binary"
+        exit 1
+    fi
+
+    if [[ ! -s "$TMP_BINARY" ]]; then
+        PrintRed "Downloaded binary is empty"
+        exit 1
+    fi
+
+    # 3. Validate SHA-256 checksum of binary if provided
+    if [[ -n "${KIWIPANEL_SHA256:-}" && "$KIWIPANEL_SHA256" != "Not provided" ]]; then
+        PrintInfo "==> Verifying SHA-256 checksum..."
+        local actual_sha256
+        actual_sha256=$(sha256sum "$TMP_BINARY" | cut -d' ' -f1)
+        if [[ "$actual_sha256" != "$KIWIPANEL_SHA256" ]]; then
+            PrintRed "Checksum mismatch!"
+            PrintRed "  Expected: $KIWIPANEL_SHA256"
+            PrintRed "  Actual:   $actual_sha256"
+            rm -f "$TMP_BINARY"
+            exit 1
+        fi
+        PrintGreen "✓ Checksum verified"
+    else
+        PrintWarn "No SHA-256 checksum available, skipping verification"
+    fi
+
+    # 4. Download architecture-specific agent binary
+    PrintInfo "==> Downloading KiwiPanel agent binary (${KIWIPANEL_ARCH})"
+    PrintInfo "    URL: $KIWIPANEL_AGENT_DOWNLOAD_URL"
+
+    if ! curl -L --fail --retry 3 --retry-delay 2 "$KIWIPANEL_AGENT_DOWNLOAD_URL" -o "$TMP_AGENT_BINARY"; then
+        PrintRed "Failed to download KiwiPanel agent binary"
+        exit 1
+    fi
+
+    if [[ ! -s "$TMP_AGENT_BINARY" ]]; then
+        PrintRed "Downloaded agent binary is empty"
+        exit 1
+    fi
+
+    PrintGreen "✓ All downloads complete"
+}
+
+#Make sure the meta data is removed during re-installation
+function RemoveMetaData(){
+    rm -f "/opt/kiwipanel/meta/passcode"
+    rm -f "/opt/kiwipanel/meta/.installed"
+}
+
+function ExtractPackage() {
+    # 1. Extract scaffold (scripts, config, systemd, templates)
+    PrintInfo "==> Extracting scaffold"
+    unzip -oq "$TMP_ZIP" -d /opt/ || {
+        PrintRed "Failed to extract KiwiPanel scaffold"
+        exit 1
+    }
+
+    # 2. Install architecture-specific binaries (overwrite any from scaffold)
+    PrintInfo "==> Installing KiwiPanel binaries (${KIWIPANEL_ARCH})"
+    local bin_dir="$INSTALL_DIR/bin"
+    mkdir -p "$bin_dir"
+
+    cp "$TMP_BINARY" "$bin_dir/kiwipanel"
+    chmod 750 "$bin_dir/kiwipanel"
+    PrintGreen "✓ kiwipanel binary installed (${KIWIPANEL_ARCH})"
+
+    cp "$TMP_AGENT_BINARY" "$bin_dir/kiwipanel-agent"
+    chmod 755 "$bin_dir/kiwipanel-agent"
+    PrintGreen "✓ kiwipanel-agent binary installed (${KIWIPANEL_ARCH})"
+
+    RemoveMetaData
+}
+
+function CreateGroupAndUser() {
+    PrintInfo "==> Creating kiwisecure group"
+    getent group kiwisecure >/dev/null || groupadd kiwisecure
+    PrintInfo "==> Creating kiwipanel user"
+    if ! id kiwipanel >/dev/null 2>&1; then
+        useradd --system \
+            --no-create-home \
+            --home-dir "$INSTALL_DIR" \
+            --shell /usr/sbin/nologin \
+            --gid kiwisecure \
+            kiwipanel
+    fi
+
+    # Ensure kiwipanel user is in kiwisecure group (for reading token file and socket access)
+    usermod -aG kiwisecure kiwipanel 2>/dev/null || true
+
+    # Add kiwipanel user to systemd-journal group (for reading agent logs via journalctl)
+    if getent group systemd-journal >/dev/null 2>&1; then
+        usermod -aG systemd-journal kiwipanel 2>/dev/null || true
+        PrintGreen "✓ kiwipanel user added to systemd-journal group"
+    fi
+}
+
+#====================================Start Installing KiwiPanel ====================================
+function PrepareDirectories() {
+    PrintInfo "==> Preparing directories"
+    mkdir -p "$INSTALL_DIR"
+}
+
+function ShowVersion() {
+    META_DIR="/opt/kiwipanel/meta"
+    VERSION_FILE="$META_DIR/version"
+    RELEASES_FILE="$META_DIR/releases.json"
+
+    RELEASES_URL="https://raw.githubusercontent.com/kiwipanel/kiwipanel/refs/heads/main/releases.json"
+
+    # Default to stable channel (can be overridden by environment variable)
+    CHANNEL="${KIWIPANEL_CHANNEL:-stable}"
+
+    mkdir -p "$META_DIR"
+
+    # Fetch releases catalog with error handling
+    if ! RELEASES_JSON=$(curl -fsSL "$RELEASES_URL" 2>/dev/null); then
+        PrintRed "Failed to fetch releases.json from GitHub"
+        exit 1
+    fi
+
+    # Validate JSON is not empty
+    if [[ -z "$RELEASES_JSON" || "$RELEASES_JSON" == "null" ]]; then
+        PrintRed "Empty or invalid releases.json received"
+        exit 1
+    fi
+
+    # Cache full releases.json locally (replaceable cache)
+    echo "$RELEASES_JSON" > "$RELEASES_FILE"
+
+    # Detect OS
+    OS="linux"
+
+    # Detect architecture
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        x86_64) ARCH="amd64" ;;
+        aarch64|arm64) ARCH="arm64" ;;
+        *)
+            PrintRed "Unsupported architecture: $ARCH"
+            exit 1
+            ;;
+    esac
+
+    # Get latest version string from the specified channel
+    LATEST_VERSION=$(echo "$RELEASES_JSON" | jq -r --arg channel "$CHANNEL" '.channels[$channel].latest // empty')
+
+    # Check if LATEST_VERSION is empty or null
+    if [[ -z "$LATEST_VERSION" || "$LATEST_VERSION" == "null" ]]; then
+        PrintRed "Failed to parse 'latest' version for channel '$CHANNEL' from releases.json"
+        PrintInfo "Available channels:"
+        echo "$RELEASES_JSON" | jq -r '.channels | keys[]' 2>/dev/null || true
+        exit 1
+    fi
+
+    PrintInfo "==> Channel: $CHANNEL"
+    PrintInfo "==> Latest version: $LATEST_VERSION"
+
+    # Select matching release (must match version, channel, os, and arch)
+    RELEASE=$(echo "$RELEASES_JSON" | jq -r \
+        --arg os "$OS" \
+        --arg arch "$ARCH" \
+        --arg ver "$LATEST_VERSION" \
+        --arg channel "$CHANNEL" '
+        .releases[]
+        | select(.version==$ver and .channel==$channel and .os==$os and .arch==$arch)
+    ')
+
+    if [[ -z "$RELEASE" || "$RELEASE" == "null" ]]; then
+        PrintRed "No compatible release found for $OS/$ARCH (channel: $CHANNEL, version: $LATEST_VERSION)"
+        PrintInfo "Available releases:"
+        echo "$RELEASES_JSON" | jq -r '.releases[] | "\(.version) [\(.channel)] - \(.os)/\(.arch)"' 2>/dev/null || true
+        exit 1
+    fi
+
+    VERSION=$(echo "$RELEASE" | jq -r '.version')
+    URL=$(echo "$RELEASE" | jq -r '.download_url')
+    NOTES=$(echo "$RELEASE" | jq -r '.notes // "No release notes"')
+    RELEASE_DATE=$(echo "$RELEASE" | jq -r '.release_date // "Unknown"')
+    SHA256=$(echo "$RELEASE" | jq -r '.sha256 // "Not provided"')
+
+    # Write plain-text version pointer (authoritative)
+    echo "$VERSION" > "$VERSION_FILE"
+
+    echo "Channel        : $CHANNEL"
+    echo "Latest Version : $VERSION"
+    echo "Release Date   : $RELEASE_DATE"
+    echo "Architecture   : $ARCH"
+    echo "SHA256         : $SHA256"
+    echo "Notes          : $NOTES"
+
+    # Export for installer/update steps
+    export KIWIPANEL_VERSION="$VERSION"
+    export KIWIPANEL_DOWNLOAD_URL="$URL"
+    export KIWIPANEL_ARCH="$ARCH"
+    export KIWIPANEL_OS="$OS"
+    export KIWIPANEL_CHANNEL="$CHANNEL"
+    export KIWIPANEL_SHA256="$SHA256"
+
+    # Derive agent and scaffold URLs from same release tag
+    # e.g. .../v0.4.2/kiwipanel-linux-amd64 → .../v0.4.2/kiwipanel-agent-linux-amd64
+    local base_url
+    base_url=$(dirname "$URL")
+    export KIWIPANEL_AGENT_DOWNLOAD_URL="${base_url}/kiwipanel-agent-linux-${ARCH}"
+    export KIWIPANEL_SCAFFOLD_URL="${base_url}/kiwipanel-scaffold.zip"
+}
+#------------------------------------------------------------Fixing ownership and permissions (because root created files beforehand
+function FixPermissions() {
+    PrintInfo "==> Setting proper ownership and permissions"
+    # Ownership
+    chown -R kiwipanel:kiwisecure "$INSTALL_DIR"
+    # Directories: rwx for owner+group
+    find "$INSTALL_DIR" -type d -exec chmod 750 {} \;
+    # Files: rw for owner+group
+    find "$INSTALL_DIR" -type f -exec chmod 640 {} \;
+    # Real binaries: executable by owner+group only
+    chmod 750 "$INSTALL_DIR/bin/kiwipanel"
+    # Agent binary (runs as root, needs to be executable)
+    if [[ -f "$INSTALL_DIR/bin/kiwipanel-agent" ]]; then
+        chmod 755 "$INSTALL_DIR/bin/kiwipanel-agent"
+    fi
+    # Ensure config directory is readable by kiwipanel user
+    if [[ -d "$INSTALL_DIR/config" ]]; then
+        chown -R kiwipanel:kiwisecure "$INSTALL_DIR/config"
+        chmod 750 "$INSTALL_DIR/config"
+        find "$INSTALL_DIR/config" -type f -exec chmod 640 {} \;
+    fi
+}
+
+function FixScriptPermissions() {
+    PrintInfo "==> Setting script permissions in /opt/kiwipanel/scripts"
+    local SCRIPT_DIR="$INSTALL_DIR/scripts"
+
+    if [ -d "$SCRIPT_DIR" ]; then
+        # Make scripts executable by owner and group only
+        find "$SCRIPT_DIR" -type f -exec chmod 750 {} \;
+
+        # Change ownership to kiwipanel user and kiwisecure group
+        chown -R kiwipanel:kiwisecure "$SCRIPT_DIR"
+
+        PrintGreen "✓ Scripts are now executable by kiwipanel user"
+    else
+        PrintInfo "==> No scripts directory found at $SCRIPT_DIR"
+    fi
+}
+
+function CreateSystemDirectories() {
+    PrintInfo "==> Creating KiwiPanel system directories"
+    mkdir -p /etc/kiwipanel
+    mkdir -p /var/log/kiwipanel
+    mkdir -p /var/lib/kiwipanel/update
+    mkdir -p /run/kiwipanel
+    chown -R kiwipanel:kiwisecure /etc/kiwipanel
+    chown -R kiwipanel:kiwisecure /var/log/kiwipanel
+    chown -R kiwipanel:kiwisecure /var/lib/kiwipanel
+    chown root:kiwisecure /run/kiwipanel
+    chmod 750 /etc/kiwipanel
+    chmod 750 /var/log/kiwipanel
+    chmod 750 /var/lib/kiwipanel
+    chmod 750 /var/lib/kiwipanel/update
+    chmod 750 /run/kiwipanel
+}
+
+function FetchingInstallScripts(){
+    PrintInfo "Fetching KiwiPanel installation script."
+    PrepareDirectories
+    CreateGroupAndUser
+    CreateSystemDirectories
+    ShowVersion
+    DownloadPackage
+    ExtractPackage
+    FixPermissions
+    FixScriptPermissions
+}
+
+FetchingInstallScripts
+
+source "/opt/kiwipanel/scripts/kiwi"
+
+InstallFirstKiwiBinary
+InstallAgentBinary
+
+# Detect the system's architecture
+ARCHITECTURE=$(uname -m)
+#
+
+kiwipanel_d_start_time=$(date +%s)
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m' #NC: Not color: reset color to the default
+IPADDRESS=$(curl -s --connect-timeout 5 https://cpanel.net/showip.cgi || hostname -I | awk '{print $1}')
+[[ -z "$IPADDRESS" ]] && IPADDRESS="<YOUR_SERVER_IP>"
+DIR=$(pwd)
+
+source "/opt/kiwipanel/scripts/utility"
+source "/opt/kiwipanel/scripts/checksystem"
+CheckSystemRequirements
+
+###################################################################################
+function CheckArchitecture() {
+    PrintInfo "==> Checking architechture. Kiwipanel supports 64 bits system only!"
+    # Ref: https://raw.githubusercontent.com/runtipi/runtipi/master/scripts/install.sh
+    # Not supported on 32 bits systems.
+    # Note: aarch64 [ARM 64-bit (also known as AArch64), armv7: 32-bit ARM]
+    local ARCHITECTURE="$(uname -m)"
+    if [[ "$ARCHITECTURE" == "armv7"* ]] || [[ "$ARCHITECTURE" == "i686" ]] || [[ "$ARCHITECTURE" == "i386" ]]; then
+        PrintRed "KiwiPanel currently does not support the 32 bits systems"
+        exit 1
+    fi
+}
+
+# =========================
+# OS Detection (refactored)
+# =========================
+
+function LoadOsRelease() {
+    local file="${1:-/etc/os-release}"
+
+    if [[ ! -f "$file" ]]; then
+        echo "ERROR: Cannot detect operating system (missing /etc/os-release)" >&2
+        exit 1
+    fi
+
+    # Method: Use grep and cut (most reliable)
+    OS_ID=$(grep '^ID=' "$file" | cut -d'=' -f2 | tr -d '"' | tr -d "'" | xargs)
+    VERSION_ID=$(grep '^VERSION_ID=' "$file" | cut -d'=' -f2 | tr -d '"' | tr -d "'" | xargs)
+    OS_VERSION_MAJOR="${VERSION_ID%%.*}"
+    OS_LIKE=$(grep '^ID_LIKE=' "$file" | cut -d'=' -f2 | tr -d '"' | tr -d "'" | xargs || echo "")
+    OS_NAME=$(grep '^PRETTY_NAME=' "$file" | cut -d'=' -f2 | tr -d '"' | tr -d "'" | xargs)
+
+    # Fallback for OS_NAME
+    if [[ -z "$OS_NAME" ]]; then
+        OS_NAME=$(grep '^NAME=' "$file" | cut -d'=' -f2 | tr -d '"' | tr -d "'" | xargs)
+    fi
+
+    # Validate critical variables
+    if [[ -z "$OS_ID" ]]; then
+        echo "ERROR: Failed to detect OS_ID from $file" >&2
+        echo "File contents:" >&2
+        cat "$file" >&2
+        exit 1
+    fi
+
+    if [[ -z "$OS_VERSION_MAJOR" ]]; then
+        echo "WARNING: Could not parse VERSION_ID, defaulting to 9" >&2
+        OS_VERSION_MAJOR="9"
+    fi
+
+    if [[ -z "$OS_NAME" ]]; then
+        OS_NAME="$OS_ID $OS_VERSION_MAJOR"
+    fi
+
+    # Success message
+    if declare -f PrintInfo >/dev/null 2>&1; then
+        PrintInfo "==> Detected: $OS_NAME (ID: $OS_ID, Version: $OS_VERSION_MAJOR)"
+    else
+        echo "Detected: $OS_NAME (ID: $OS_ID, Version: $OS_VERSION_MAJOR)"
+    fi
+
+    # Debug logging
+    if [[ "${DEBUG:-0}" == "1" ]]; then
+        echo "DEBUG: OS_ID=[$OS_ID]" >&2
+        echo "DEBUG: OS_VERSION_MAJOR=[$OS_VERSION_MAJOR]" >&2
+        echo "DEBUG: OS_LIKE=[$OS_LIKE]" >&2
+        echo "DEBUG: OS_NAME=[$OS_NAME]" >&2
+    fi
+}
+
+function CheckOs() {
+    PrintInfo "==> Checking operating system compatibility..."
+
+    LoadOsRelease
+
+    PrintInfo "==> Detected OS: ${OS_NAME}"
+    PrintInfo "==> Kernel: $(uname -r)"
+
+    # ---- Reject CentOS Stream explicitly ----
+    if [[ "$OS_ID" == "centos" && "$OS_NAME" =~ Stream ]]; then
+        PrintRed "CentOS Stream is not supported."
+        PrintRed "Please use Rocky Linux or AlmaLinux instead."
+        exit 1
+    fi
+
+    case "${OS_ID}" in
+        debian)
+            if (( OS_VERSION_MAJOR < 11 )); then
+                PrintRed "Debian ${VERSION_ID} is not supported."
+                PrintRed "Please use Debian 11, 12, or 13."
+                exit 1
+            fi
+            ;;
+        ubuntu)
+            if (( OS_VERSION_MAJOR < 22 )); then
+                PrintRed "Ubuntu ${VERSION_ID} is not supported."
+                PrintRed "Please use Ubuntu 22.04 or newer."
+                exit 1
+            fi
+            ;;
+        rhel|rocky|almalinux|ol|cloudlinux|vzlinux)
+            if (( OS_VERSION_MAJOR < 9 )); then
+                PrintRed "${OS_NAME} (version ${OS_VERSION_MAJOR}) is not supported."
+                PrintRed "KiwiPanel requires systemd 249+ which is not available on EL8 distributions."
+                PrintRed "Please use version 9 or newer (Rocky Linux 9, AlmaLinux 9, RHEL 9, etc.)."
+                exit 1
+            fi
+            ;;
+        *)
+            if [[ "${OS_LIKE}" == *"rhel"* ]]; then
+                if (( OS_VERSION_MAJOR < 9 )); then
+                    PrintRed "${OS_NAME} (version ${OS_VERSION_MAJOR}) is not supported."
+                    PrintRed "KiwiPanel requires systemd 249+. Please use version 9 or newer."
+                    exit 1
+                fi
+            else
+                PrintRed "Unsupported operating system."
+                PrintRed "Supported: Debian 11+, Ubuntu 22.04+, Rocky/Alma/RHEL 9+"
+                exit 1
+            fi
+            ;;
+    esac
+
+    PrintGreen "✔ Operating system is supported."
+}
+
+#Check port https://ping.eu/port-chk/
+function CheckPortUsage() {
+    local port="$1"
+    PrintInfo "==> Checking port $port..."
+    if ss -tuln | awk '{print $5}' | grep -q ":$port$"; then
+        echo "❌ Port $port is already in use. KiwiPanel needs this port."
+        return 1
+    fi
+    PrintGreen "✔ Port $port is free."
+}
+
+
+source "/opt/kiwipanel/scripts/checkscript"
+
+function CheckSystemdVersion() {
+    PrintInfo "==> Checking systemd version..."
+    local MIN_SYSTEMD_VERSION=249
+
+    if ! command -v systemctl >/dev/null 2>&1; then
+        PrintRed "systemctl not found. KiwiPanel requires systemd ${MIN_SYSTEMD_VERSION}+."
+        exit 1
+    fi
+
+    local systemd_ver
+    systemd_ver=$(systemctl --version 2>/dev/null | head -1 | grep -oP 'systemd\s+\K\d+' || echo "0")
+
+    if [[ -z "$systemd_ver" || "$systemd_ver" -eq 0 ]]; then
+        PrintRed "Failed to detect systemd version."
+        exit 1
+    fi
+
+    if (( systemd_ver < MIN_SYSTEMD_VERSION )); then
+        PrintRed "systemd ${systemd_ver} is too old. KiwiPanel requires systemd ${MIN_SYSTEMD_VERSION}+."
+        PrintRed "Your system's systemd does not support required security features."
+        PrintRed "Please upgrade to a newer OS (e.g., Rocky/AlmaLinux 9, Debian 12, Ubuntu 22.04)."
+        exit 1
+    fi
+
+    PrintGreen "✔ systemd ${systemd_ver} (>= ${MIN_SYSTEMD_VERSION})"
+}
+
+function CheckConditionBeforeInstall() {
+    PrintInfo "==> Evaluating your VPS before installing KiwiPanel....."
+    CheckOs
+    CheckSystemdVersion
+    CheckArchitecture
+    CheckPanelScript
+    CheckPortUsage 8443 || exit 1
+}
+
+#------------------------------------------------------------Create passcode to protect login page
+function GenerateThePasscode() {
+    local META_DIR="/opt/kiwipanel/meta"
+    local PASSCODE_FILE="$META_DIR/passcode"
+    local INSTALL_MARKER="$META_DIR/.installed"
+
+    mkdir -p "$META_DIR"
+
+    if [[ -f "$INSTALL_MARKER" && -f "$PASSCODE_FILE" ]]; then
+        kiwipanel_passcode=$(tr -d '\n' < "$PASSCODE_FILE")
+        PrintGreen "✔ Existing passcode preserved."
+        return
+    fi
+
+    kiwipanel_passcode=$(GenerateRandomString)
+    printf '%s\n' "$kiwipanel_passcode" > "$PASSCODE_FILE"
+
+    chown kiwipanel:kiwisecure "$PASSCODE_FILE"
+    chmod 640 "$PASSCODE_FILE"
+
+    touch "$INSTALL_MARKER"
+    chown kiwipanel:kiwisecure "$INSTALL_MARKER"
+    chmod 640 "$INSTALL_MARKER"
+
+    PrintGreen "✔ New passcode generated."
+}
+
+#------------------------------------------------------------Generate terminal token for global terminal access
+# This token is required to access the global (root) terminal via web UI
+# SECURITY: We store SHA-256 hash of the token, not the plain text
+function GenerateTerminalToken() {
+    local META_DIR="/opt/kiwipanel/meta"
+    local TOKEN_FILE="$META_DIR/terminal_token"
+
+    mkdir -p "$META_DIR"
+
+    # Always generate a new unique token (don't reuse from package)
+    # Generate a secure random 32-character token
+    terminal_token=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
+
+    # Hash the token using SHA-256 before storing
+    # IMPORTANT: Use printf to avoid newline issues (echo -n behaves differently on some systems)
+    # The plain token is shown to user only once during install
+    local token_hash
+    token_hash=$(printf '%s' "$terminal_token" | sha256sum | cut -d' ' -f1)
+
+    printf '%s\n' "$token_hash" > "$TOKEN_FILE"
+
+    # Set ownership and permissions
+    # Token hash file should be readable by kiwipanel user (for web service)
+    chown kiwipanel:kiwisecure "$TOKEN_FILE"
+    chmod 640 "$TOKEN_FILE"
+
+    PrintGreen "✔ Terminal token generated (stored as hash)."
+}
+
+
+# #------------------------------------------------------------Installing systemd service file
+#------------------------------------------------------------
+# Helper: Installs a single unit file (copies, permissions, backup)
+#------------------------------------------------------------
+function install_unit_file() {
+    local unit_name="$1"
+    local service_src="$INSTALL_DIR/systemd/$unit_name"
+    local service_dst="/etc/systemd/system/$unit_name"
+
+    # Validate source
+    if [[ ! -f "$service_src" ]]; then
+        PrintRed "Unit file not found: ${service_src}"
+        return 1
+    fi
+
+    # Backup existing
+    if [[ -f "$service_dst" ]]; then
+        cp "$service_dst" "${service_dst}.bak"
+    fi
+
+    # Copy and set permissions
+    cp "$service_src" "$service_dst"
+    chmod 644 "$service_dst"
+    PrintInfo "Installed unit: $unit_name"
+}
+
+#------------------------------------------------------------
+# Main Function: Installs and Starts Services
+#------------------------------------------------------------
+function InstallSystemdService() {
+    PrintInfo "==> Installing Systemd Services..."
+
+    # 1. Install the unit files
+    install_unit_file "kiwipanel.service" || return 1
+
+    # Only install update service/path if they exist in source
+    if [[ -f "$INSTALL_DIR/systemd/kiwipanel-update.service" ]]; then
+        install_unit_file "kiwipanel-update.service" || return 1
+    fi
+
+    if [[ -f "$INSTALL_DIR/systemd/kiwipanel-update.path" ]]; then
+        install_unit_file "kiwipanel-update.path" || return 1
+    fi
+
+    # Install agent service and socket
+    if [[ -f "$INSTALL_DIR/systemd/kiwipanel-agent.service" ]]; then
+        install_unit_file "kiwipanel-agent.service" || return 1
+    fi
+
+    if [[ -f "$INSTALL_DIR/systemd/kiwipanel-agent.socket" ]]; then
+        install_unit_file "kiwipanel-agent.socket" || return 1
+    fi
+
+
+    # 2. Reload Daemon (Do this once for all files)
+    if ! systemctl daemon-reload; then
+        PrintRed "Failed to reload systemd daemon"
+        return 1
+    fi
+
+    # 3. Enable Services
+    PrintInfo "==> Enabling services..."
+
+    if ! systemctl enable kiwipanel.service >/dev/null; then
+        PrintRed "Failed to enable kiwipanel.service"
+        return 1
+    fi
+
+    if [[ -f "/etc/systemd/system/kiwipanel-update.service" ]]; then
+        systemctl enable kiwipanel-update.service >/dev/null || true
+    fi
+
+    # Enable path unit (it monitors for changes)
+    if [[ -f "/etc/systemd/system/kiwipanel-update.path" ]]; then
+        if ! systemctl enable kiwipanel-update.path >/dev/null; then
+            PrintWarn "Failed to enable kiwipanel-update.path"
+        fi
+    fi
+
+     # Enable agent socket and service
+    [[ -f "/etc/systemd/system/kiwipanel-agent.socket" ]] && \
+        systemctl enable kiwipanel-agent.socket >/dev/null
+    [[ -f "/etc/systemd/system/kiwipanel-agent.service" ]] && \
+        systemctl enable kiwipanel-agent.service >/dev/null
+
+    # 4. Start Main Service with Health Checks
+    PrintInfo "==> Starting KiwiPanel service..."
+
+    # Stop first to ensure clean restart
+    systemctl stop kiwipanel.service 2>/dev/null
+
+    if ! systemctl start kiwipanel.service; then
+        PrintRed "Failed to start service"
+        systemctl status kiwipanel.service --no-pager || true
+        journalctl -u kiwipanel.service -n 20 --no-pager || true
+        return 1
+    fi
+
+    # 5. Start path unit to begin monitoring
+    if [[ -f "/etc/systemd/system/kiwipanel-update.path" ]]; then
+        PrintInfo "==> Starting update monitor..."
+        if ! systemctl start kiwipanel-update.path; then
+            PrintWarn "Failed to start kiwipanel-update.path (auto-updates may not work)"
+        else
+            PrintGreen "✓ Update monitor started"
+        fi
+    fi
+
+    # Start agent socket first for socket activation
+    if [[ -f "/etc/systemd/system/kiwipanel-agent.socket" ]]; then
+        systemctl start kiwipanel-agent.socket && PrintGreen "✓ Agent socket started"
+    fi
+
+    # Start agent service
+    if [[ -f "/etc/systemd/system/kiwipanel-agent.service" ]]; then
+        systemctl start kiwipanel-agent.service && PrintGreen "✓ Agent service started"
+    fi
+
+    # 6. Wait for service to be ready
+    PrintInfo "==> Waiting for service to become ready..."
+    local timeout=60
+    local elapsed=0
+
+    while (( elapsed < timeout )); do
+        if systemctl is-active --quiet kiwipanel.service; then
+            # Double check: wait 1s and check again to ensure it didn't crash immediately
+            sleep 1
+            if systemctl is-active --quiet kiwipanel.service; then
+                PrintGreen "✓ KiwiPanel service started successfully (${elapsed}s)"
+                return 0
+            fi
+        fi
+        sleep 1
+        ((elapsed++))
+    done
+
+    # Timeout reached
+    PrintWarn "⚠ Service did not start within ${timeout}s"
+    systemctl status kiwipanel.service --no-pager || true
+    PrintInfo "Recent logs:"
+    journalctl -u kiwipanel.service -n 15 --no-pager || true
+    return 1
+}
+
+function Cleanup() {
+    rm -f "$TMP_ZIP"
+    rm -f "$TMP_BINARY"
+    rm -f "$TMP_AGENT_BINARY"
+    rm -rf /tmp/kiwipanel-* 2>/dev/null || true
+
+    # Clean up any failed extraction attempts
+    if [[ -d /opt/kiwipanel.tmp ]]; then
+        rm -rf /opt/kiwipanel.tmp
+    fi
+}
+
+
+function DisableSelinuxRuntime() {
+    # Only applies to systems with SELinux tools
+    if ! command -v getenforce >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local mode
+    mode="$(getenforce 2>/dev/null || echo Disabled)"
+
+    case "$mode" in
+        Enforcing|Permissive)
+            PrintWarn "Disabling SELinux enforcement (runtime). Consider configuring SELinux policies for production."
+            setenforce 0 || true
+            ;;
+        Disabled)
+            PrintInfo "==> SELinux already disabled"
+            ;;
+        *)
+            PrintWarn "Unknown SELinux mode: $mode (ignored)"
+            ;;
+    esac
+
+    return 0
+}
+
+
+function VerifyKiwipanel(){
+    PrintInfo "==> Verifying ownership"
+    for path in /opt/kiwipanel /etc/kiwipanel /var/log/kiwipanel /var/lib/kiwipanel; do
+    owner=$(stat -c "%U:%G" "$path")
+    if [ "$owner" != "kiwipanel:kiwisecure" ]; then
+        PrintWarn "$path ownership is $owner (expected kiwipanel:kiwisecure)"
+    fi
+    done
+}
+
+
+function SuccessMessage() {
+    PrintGreen "✔ KiwiPanel has been successfully installed on your VPS!"
+    kiwipanel_d_end_time=$(date +%s)
+    elapsed=$((kiwipanel_d_end_time - kiwipanel_d_start_time))
+    printf " \n"
+    echo "$(tput setaf 2)Total time installed: ${elapsed} seconds.$(tput sgr0)"
+    printf " \n"
+    echo "$(tput setaf 2)================================Install KiwiPanel Done!==============================$(tput sgr0)"
+    echo ""
+    echo "   Login at : https://$IPADDRESS:$KIWIPANEL_PORT/$kiwipanel_passcode"
+    echo "   User:     ${admin_user}"
+    echo "   Password: ${admin_pass}"
+    echo ""
+    echo "$(tput setaf 3)   ⚠️  IMPORTANT - Save these credentials now!$(tput sgr0)"
+    echo ""
+    echo "   Terminal Token: ${terminal_token}"
+    echo "   (This token is shown ONLY ONCE. Use it at Dashboard > Terminal)"
+    echo "   To rotate: kiwipanel terminal rotate"
+    echo ""
+    echo "   Database information:"
+    cat /etc/kiwipanel/secrets.env
+    echo ""
+    echo "$(tput setaf 2)=====================================================================================$(tput sgr0)"
+    LogInfo "Installation completed successfully"
+}
+
+
+source "/opt/kiwipanel/scripts/wrapper"
+
+function InstallKiwipanel() {
+    local config_file="/opt/kiwipanel/config/kiwipanel.toml"
+    if [[ ! -f "$config_file" ]]; then
+        PrintWarn "Config file not found, generating now..."
+        WriteToConfig || {
+            PrintRed "Failed to generate config file"
+            return 1
+        }
+    fi
+    InstallWrapper
+    DisableDefaultMotd
+    GenerateThePasscode
+    GenerateTerminalToken
+    InstallSystemdService
+    InstallLoginBanner
+}
+
+# ------------------------------------------------------------------------------
+# Main flow
+# ------------------------------------------------------------------------------
+function InstallLitespeedServer() {
+    InstallingOpenLiteSpeedRepo
+    #Updated: Using mask to prevent
+    GuardOlsServiceDebianUbuntu
+    InstallingOpenLiteSpeed
+    InstallingLiteSpeedPhp
+    EnsureAdminPassword
+    SetupKiwiwebUser
+    ConfigureLswsListener
+    Disable7080
+
+     # NO restart here - just configure
+    PrintGreen "OpenLiteSpeed configuration complete."
+}
+
+#================================= Fetching source file from github=================================
+
+source "/opt/kiwipanel/scripts/loginbanner"
+source "/opt/kiwipanel/scripts/welcome"
+source "/opt/kiwipanel/scripts/mariadb"
+source "/opt/kiwipanel/scripts/firewall"
+source "/opt/kiwipanel/scripts/kiwipanelssl"
+source "/opt/kiwipanel/scripts/base"
+source "/opt/kiwipanel/scripts/swap"
+source "/opt/kiwipanel/scripts/createadminuser"
+source "/opt/kiwipanel/scripts/lsws"
+
+function WriteToConfig(){
+    # 1. Set critical variables FIRST
+    export KIWIPANEL_ADMIN_USER="admin"  # or your generated value
+    export KIWIPANEL_ADMIN_PASS="$kiwipanel_passcode"
+    export DB_PASS="${KIWIPANEL_ADMIN_USER}_test_test"  # from your MariaDB setup
+
+    # 2. Source the scripts
+    source "/opt/kiwipanel/scripts/writeconfigdata" || {
+        PrintRed "Failed to source writeconfigdata"
+        return 1
+    }
+
+    source "/opt/kiwipanel/scripts/writeconfig" || {
+        PrintRed "Failed to source writeconfig"
+        return 1
+    }
+
+    # 3. Generate config
+    if ! GenerateInitialConfig; then
+        PrintRed "Failed to generate configuration file"
+        return 1
+    fi
+
+    PrintGreen "✓ Configuration file created successfully"
+}
+
+function main() {
+    Welcome
+    CheckConditionBeforeInstall
+    InstallAndConfigureBase
+    CreateSwap
+    InstallAndConfigureFirewall
+    #Need to create user/group before issuing SSL. Get error otherwise bc the user has not been created yet.
+    #SSL----
+    InstallAndConfigureSSL
+    #SSL----
+    InstallAndConfigureMariaDB
+    WriteToConfig
+    InstallKiwipanel #<-- need SSL to run, that is why we put in the lower order.
+    InstallLitespeedServer
+    VerifyLswsStopped
+    UnguardOpenLiteSpeedService
+    StartLswsOnce
+    VerifyKiwipanel
+    PostInstallCheck
+    CreateAdminUser
+    SuccessMessage
+    Cleanup
+}
+
+main
