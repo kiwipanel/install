@@ -13,10 +13,10 @@
 # KiwiPanel Installer v0.1.5
 # To install KiwiPanel copy the following instruction and paste to the terminal:
 # Quick Install (copy and paste to terminal):
-# bash <(curl -fsSL https://raw.githubusercontent.com/kiwipanel/kiwipanel/main/install)
+# bash <(curl -fsSL https://raw.githubusercontent.com/kiwipanel/install/main/install)
 #
 # Or download first:
-# curl -sLO https://raw.githubusercontent.com/kiwipanel/kiwipanel/main/install && chmod +x install && sudo bash install
+# curl -sLO https://raw.githubusercontent.com/kiwipanel/install/main/install && chmod +x install && sudo bash install
 
 ######################################################################
 # Check for sudo/root privileges######################################
@@ -329,7 +329,7 @@ function ShowVersion() {
     VERSION_FILE="$META_DIR/version"
     RELEASES_FILE="$META_DIR/releases.json"
 
-    RELEASES_URL="https://raw.githubusercontent.com/kiwipanel/kiwipanel/refs/heads/main/releases.json"
+    RELEASES_URL="https://raw.githubusercontent.com/kiwipanel/install/refs/heads/main/releases.json"
 
     # Default to stable channel (can be overridden by environment variable)
     CHANNEL="${KIWIPANEL_CHANNEL:-stable}"
