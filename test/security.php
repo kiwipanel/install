@@ -377,16 +377,29 @@ echo "<h2>🔗 Symlink Attack Test</h2><pre>";
 $target = "/etc/passwd";
 $link = __DIR__ . "/evil_link";
 
-$result = @symlink($target, $link);
-if ($result) {
-    $content = @file_get_contents($link);
-    echo "Symlink creation:  ⚠️  ALLOWED\n";
-    echo "Read via symlink:  " .
-        ($content ? "⚠️  WORKS (bypass!)" : "✅ Blocked by open_basedir") .
-        "\n";
-    @unlink($link);
+if (!function_exists("symlink")) {
+    echo "Symlink creation:  ✅ BLOCKED (symlink function disabled)\n";
 } else {
-    echo "Symlink creation:  ✅ BLOCKED\n";
+    // Use output buffering + custom error handler to catch fatal-level open_basedir violations
+    // that @ cannot suppress and that kill the rest of the script
+    $symlinkError = false;
+    set_error_handler(function ($errno, $errstr) use (&$symlinkError) {
+        $symlinkError = true;
+        return true; // prevent PHP default handler (which may halt output)
+    });
+    $result = symlink($target, $link);
+    restore_error_handler();
+
+    if ($result && !$symlinkError) {
+        $content = @file_get_contents($link);
+        echo "Symlink creation:  ⚠️  ALLOWED\n";
+        echo "Read via symlink:  " .
+            ($content ? "⚠️  WORKS (bypass!)" : "✅ Blocked by open_basedir") .
+            "\n";
+        @unlink($link);
+    } else {
+        echo "Symlink creation:  ✅ BLOCKED\n";
+    }
 }
 
 // Can we use .. traversal in include?
