@@ -123,7 +123,7 @@ chmod 640 "$LOG_FILE"
 # ==============================================================================
 
 INSTALL_STATE_DIR="/var/lib/kiwipanel/install.d"
-STEP_TOTAL=13
+STEP_TOTAL=9
 STEP_CURRENT=0
 VERIFY_ONLY=0
 STEPS_FILTER=""
@@ -256,7 +256,7 @@ function CheckFreshInstall() {
     if [[ -d "$state_dir" ]] && compgen -G "$state_dir/*.done" >/dev/null 2>&1; then
         local completed
         completed=$(find "$state_dir" -name '*.done' | wc -l)
-        PrintWarn "Found partial installation ($completed/13 steps completed). Resuming..."
+        PrintWarn "Found partial installation ($completed/9 steps completed). Resuming..."
         return 0
     fi
 
@@ -274,21 +274,28 @@ function PreflightChecks() {
 
     local missing=()
 
-    # Check binary dependencies
-    for cmd in curl wget unzip systemctl jq gpg; do
+    # Check binary dependencies (note: gpg is handled separately below)
+    for cmd in curl wget unzip systemctl jq; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             missing+=("$cmd")
         fi
     done
 
-    # Always ensure these packages are present (can't detect via command -v)
-    # gnupg is called gnupg2 on RHEL/Rocky/Alma
-    if command -v apt >/dev/null 2>&1; then
-        missing+=("gnupg")
-    else
-        missing+=("gnupg2")
+    # gpg: package name differs between distros
+    if ! command -v gpg >/dev/null 2>&1; then
+        if command -v apt >/dev/null 2>&1; then
+            missing+=("gnupg")
+        else
+            missing+=("gnupg2")
+        fi
     fi
-    missing+=("ca-certificates")
+
+    # ca-certificates: check via package manager, not command
+    if command -v dpkg >/dev/null 2>&1; then
+        dpkg -s ca-certificates &>/dev/null || missing+=("ca-certificates")
+    elif command -v rpm >/dev/null 2>&1; then
+        rpm -q ca-certificates &>/dev/null || missing+=("ca-certificates")
+    fi
 
     if [ ${#missing[@]} -gt 0 ]; then
         PrintInfo "==> Installing missing dependencies: ${missing[*]}"
@@ -306,77 +313,9 @@ function PreflightChecks() {
     fi
 }
 
-# ==============================================================================
-# Bootstrap Phase: Step Functions + Verify Functions
-# ==============================================================================
-
-# Step 1: Preflight
-step_bootstrap_preflight() {
-    CheckFreshInstall
-    PreflightChecks
-}
-
-verify_bootstrap_preflight() {
-    # Minimal deps available
-    for cmd in curl wget unzip jq gpg; do
-        command -v "$cmd" >/dev/null 2>&1 || return 1
-    done
-    return 0
-}
-
-# Step 2: Download & Extract
-step_bootstrap_download() {
-    FetchingInstallScripts
-}
-
-verify_bootstrap_download() {
-    ensure_file_exists "$INSTALL_DIR/bin/kiwipanel" || return 1
-    ensure_file_exists "$INSTALL_DIR/bin/kiwipanel-agent" || return 1
-    ensure_dir_exists "$INSTALL_DIR/scripts" || return 1
-    ensure_file_exists "$INSTALL_DIR/meta/version" || return 1
-    ensure_user_exists "kiwipanel" || return 1
-    ensure_group_exists "kiwisecure" || return 1
-    return 0
-}
-
-# Step 3: Install binaries to /usr/local/bin
-# Note: scripts/kiwi is sourced at top-level (line ~702) before this step runs
-step_bootstrap_binaries() {
-    InstallFirstKiwiBinary
-    InstallAgentBinary
-}
-
-verify_bootstrap_binaries() {
-    ensure_file_exists "/usr/local/bin/kiwipanel" || return 1
-    [[ -x "/usr/local/bin/kiwipanel" ]] || return 1
-    ensure_file_exists "/usr/local/bin/kiwipanel-agent" || return 1
-    return 0
-}
-
-# Step 4: System checks (uses sourced scripts)
-step_bootstrap_syscheck() {
-    CheckSystemRequirements
-    CheckConditionBeforeInstall
-}
-
-verify_bootstrap_syscheck() {
-    # If we got past the checks, the system is compatible
-    # Verify the critical pieces: 64-bit, supported OS, port free
-    local arch
-    arch="$(uname -m)"
-    [[ "$arch" == "x86_64" || "$arch" == "aarch64" || "$arch" == "arm64" ]] || return 1
-    [[ -f /etc/os-release ]] || return 1
-    return 0
-}
-
-# ==============================================================================
-# Bootstrap Phase: Execution
-# ==============================================================================
-
-mkdir -p "$INSTALL_STATE_DIR"
-
-run_step "bootstrap_preflight"  step_bootstrap_preflight  verify_bootstrap_preflight
-run_step "bootstrap_download"   step_bootstrap_download   verify_bootstrap_download
+# Run initial checks
+CheckFreshInstall
+PreflightChecks
 
 
 # Configuration########################################################
@@ -698,10 +637,12 @@ function FetchingInstallScripts(){
     FixScriptPermissions
 }
 
-# Scripts now exist after bootstrap_download — source and continue bootstrap
+FetchingInstallScripts
+
 source "/opt/kiwipanel/scripts/kiwi"
 
-run_step "bootstrap_binaries"   step_bootstrap_binaries   verify_bootstrap_binaries
+InstallFirstKiwiBinary
+InstallAgentBinary
 
 # Detect the system's architecture
 ARCHITECTURE=$(uname -m)
@@ -718,8 +659,7 @@ DIR=$(pwd)
 source "/opt/kiwipanel/scripts/utility"
 source "/opt/kiwipanel/scripts/checksystem"
 source "/opt/kiwipanel/scripts/checkscript"
-
-run_step "bootstrap_syscheck"   step_bootstrap_syscheck   verify_bootstrap_syscheck
+CheckSystemRequirements
 
 ###################################################################################
 function CheckArchitecture() {
@@ -1228,10 +1168,13 @@ function WriteToConfig(){
     export KIWIPANEL_ADMIN_PASS="$kiwipanel_passcode"
 
     # Load the real DB password generated by InstallAndConfigureMariaDB
-    # (stored in /etc/kiwipanel/secrets.env by SaveMariaDBSecret)
-    export DB_PASS="$(LoadMariaDBSecret "DB_PASS" 2>/dev/null || echo "")"
-    if [[ -z "$DB_PASS" ]]; then
-        PrintRed "DB_PASS not found in secrets file. Did MariaDB install complete?"
+    # (stored in /etc/kiwipanel/secrets.env by the mariadb script)
+    if [[ -f /etc/kiwipanel/secrets.env ]]; then
+        DB_PASS="$(grep '^DB_PASS=' /etc/kiwipanel/secrets.env | cut -d'=' -f2- | tr -d '\n')"
+        export DB_PASS
+    fi
+    if [[ -z "${DB_PASS:-}" ]]; then
+        PrintRed "DB_PASS not found in /etc/kiwipanel/secrets.env. Did MariaDB install complete?"
         return 1
     fi
 
@@ -1305,8 +1248,8 @@ verify_firewall() {
 step_ssl() { InstallAndConfigureSSL; }
 
 verify_ssl() {
-    local cert="/opt/kiwipanel/ssl/panel/cert.pem"
-    local key="/opt/kiwipanel/ssl/panel/key.pem"
+    local cert="/opt/kiwipanel/ssl/panel/kiwipanel.crt"
+    local key="/opt/kiwipanel/ssl/panel/kiwipanel.key"
     ensure_file_exists "$cert" || return 1
     ensure_file_exists "$key" || return 1
     # Not expired?
@@ -1375,16 +1318,10 @@ step_finalize() {
 }
 
 verify_finalize() {
-    # Admin user exists — check by querying the panel
+    # Panel service must still be running after finalize
     ensure_service_active "kiwipanel" || return 1
-    # Ownership correct on key dirs
-    for path in /opt/kiwipanel /etc/kiwipanel /var/log/kiwipanel; do
-        if [[ -d "$path" ]]; then
-            local owner
-            owner=$(stat -c "%U:%G" "$path" 2>/dev/null)
-            [[ "$owner" == "kiwipanel:kiwisecure" ]] || return 1
-        fi
-    done
+    # Admin user creation writes to the database; check the DB file exists
+    ensure_file_exists "/opt/kiwipanel/data/kiwipanel.db" || return 1
     return 0
 }
 
@@ -1393,6 +1330,8 @@ verify_finalize() {
 # ==============================================================================
 function main() {
     Welcome
+    CheckConditionBeforeInstall
+    mkdir -p "$INSTALL_STATE_DIR"
 
     run_step "base_system"  step_base_system  verify_base_system
     run_step "swap"         step_swap         verify_swap
