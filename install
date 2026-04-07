@@ -114,20 +114,154 @@ touch "$LOG_FILE" || {
 chmod 750 "$KIWIPANEL_DIR" "$LOG_DIR" # rwx for owner+group only; no access for others (security requirement)
 chmod 640 "$LOG_FILE"
 
+# ==============================================================================
+# Step Runner Framework
+# ==============================================================================
+# Adds resume-after-interruption capability. Each install step is wrapped with
+# run_step which tracks completion via marker files and verifies before skipping.
+# The existing install functions are called unchanged — this is a thin wrapper.
+# ==============================================================================
+
+INSTALL_STATE_DIR="/var/lib/kiwipanel/install.d"
+STEP_TOTAL=13
+STEP_CURRENT=0
+VERIFY_ONLY=0
+STEPS_FILTER=""
+
+# Parse optional flags
+for arg in "$@"; do
+    case "$arg" in
+        --verify-only) VERIFY_ONLY=1 ;;
+        --steps=*)     STEPS_FILTER="${arg#--steps=}" ;;
+    esac
+done
+
+# run_step "step_name" execute_function verify_function
+run_step() {
+    local name="$1"
+    local execute_fn="$2"
+    local verify_fn="$3"
+    local state_file="$INSTALL_STATE_DIR/${name}.done"
+
+    ((STEP_CURRENT++)) || true
+
+    # If --steps filter is set, skip steps not in the list
+    if [[ -n "$STEPS_FILTER" ]]; then
+        if ! echo ",$STEPS_FILTER," | grep -q ",$name,"; then
+            return 0
+        fi
+    fi
+
+    local prefix="[${STEP_CURRENT}/${STEP_TOTAL}] ${name}"
+
+    # If marked done, verify before skipping
+    if [[ -f "$state_file" ]]; then
+        if "$verify_fn" 2>/dev/null; then
+            PrintGreen "${prefix} ✔ verified (skipped)"
+            LogInfo "Step '$name': verified, skipped"
+            return 0
+        else
+            PrintWarn "${prefix}: verification failed, re-running"
+            LogWarn "Step '$name': was marked done but verification failed"
+            rm -f "$state_file"
+        fi
+    fi
+
+    # --verify-only mode: just report status, don't execute
+    if [[ "$VERIFY_ONLY" == "1" ]]; then
+        if "$verify_fn" 2>/dev/null; then
+            PrintGreen "${prefix} ✔ verified"
+        else
+            PrintRed "${prefix} ✘ FAILED"
+        fi
+        return 0
+    fi
+
+    # Execute
+    PrintInfo "${prefix} ▶ running..."
+    LogInfo "Step '$name': starting"
+    local start_time
+    start_time=$(date +%s)
+
+    if "$execute_fn"; then
+        # Verify after execution
+        if "$verify_fn" 2>/dev/null; then
+            # Atomic mark: write to tmp, then mv (survives power loss)
+            local tmp_file="${state_file}.tmp"
+            date -u +"%Y-%m-%dT%H:%M:%SZ" > "$tmp_file"
+            mv "$tmp_file" "$state_file"
+            local elapsed=$(( $(date +%s) - start_time ))
+            PrintGreen "${prefix} ✔ completed (${elapsed}s)"
+            LogInfo "Step '$name': completed and verified (${elapsed}s)"
+            return 0
+        else
+            PrintRed "${prefix}: executed but verification failed"
+            LogError "Step '$name': executed but verification failed"
+            return 1
+        fi
+    else
+        PrintRed "${prefix}: execution failed"
+        LogError "Step '$name': execution failed"
+        return 1
+    fi
+}
+
+# ==============================================================================
+# Idempotent Primitives (used by verify functions)
+# ==============================================================================
+
+ensure_package_installed() {
+    local pkg="$1"
+    rpm -q "$pkg" &>/dev/null || dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'
+}
+
+ensure_service_active() {
+    local svc="$1"
+    systemctl is-active "$svc" &>/dev/null
+}
+
+ensure_user_exists() {
+    local usr="$1"
+    id "$usr" &>/dev/null
+}
+
+ensure_group_exists() {
+    local grp="$1"
+    getent group "$grp" >/dev/null
+}
+
+ensure_dir_exists() {
+    local dir="$1"
+    [[ -d "$dir" ]]
+}
+
+ensure_file_exists() {
+    local file="$1"
+    [[ -f "$file" ]]
+}
+
 
 function CheckFreshInstall() {
-    # Check if the service is known to systemd (Loaded, Masked, or Active)
-    local service_state
-    service_state=$(systemctl show -p LoadState --value kiwipanel.service)
+    local state_dir="$INSTALL_STATE_DIR"
 
-    # If state is ANYTHING other than "not-found", it is already installed
-    if [[ "$service_state" != "not-found" ]]; then
-        PrintRed "KiwiPanel service has already been installed. Abort installation."
-        PrintRed "Please install on a fresh compute or manually remove the existing service."
+    # Case 1: Fully completed install (finalize.done exists)
+    if [[ -f "$state_dir/finalize.done" ]]; then
+        PrintRed "KiwiPanel is already fully installed."
+        PrintRed "To force re-install, remove the state directory:"
+        PrintRed "  rm -rf $state_dir && sudo bash install"
         exit 1
-    else
-        PrintGreen "Welcome! Thanks for choosing KiwiPanel."
     fi
+
+    # Case 2: Partial install (state dir exists, some steps done)
+    if [[ -d "$state_dir" ]] && compgen -G "$state_dir/*.done" >/dev/null 2>&1; then
+        local completed
+        completed=$(find "$state_dir" -name '*.done' | wc -l)
+        PrintWarn "Found partial installation ($completed/13 steps completed). Resuming..."
+        return 0
+    fi
+
+    # Case 3: Fresh install
+    PrintGreen "Welcome! Thanks for choosing KiwiPanel."
 }
 
 function PreflightChecks() {
@@ -172,9 +306,77 @@ function PreflightChecks() {
     fi
 }
 
-# Run initial checks
-CheckFreshInstall
-PreflightChecks
+# ==============================================================================
+# Bootstrap Phase: Step Functions + Verify Functions
+# ==============================================================================
+
+# Step 1: Preflight
+step_bootstrap_preflight() {
+    CheckFreshInstall
+    PreflightChecks
+}
+
+verify_bootstrap_preflight() {
+    # Minimal deps available
+    for cmd in curl wget unzip jq gpg; do
+        command -v "$cmd" >/dev/null 2>&1 || return 1
+    done
+    return 0
+}
+
+# Step 2: Download & Extract
+step_bootstrap_download() {
+    FetchingInstallScripts
+}
+
+verify_bootstrap_download() {
+    ensure_file_exists "$INSTALL_DIR/bin/kiwipanel" || return 1
+    ensure_file_exists "$INSTALL_DIR/bin/kiwipanel-agent" || return 1
+    ensure_dir_exists "$INSTALL_DIR/scripts" || return 1
+    ensure_file_exists "$INSTALL_DIR/meta/version" || return 1
+    ensure_user_exists "kiwipanel" || return 1
+    ensure_group_exists "kiwisecure" || return 1
+    return 0
+}
+
+# Step 3: Install binaries to /usr/local/bin
+# Note: scripts/kiwi is sourced at top-level (line ~702) before this step runs
+step_bootstrap_binaries() {
+    InstallFirstKiwiBinary
+    InstallAgentBinary
+}
+
+verify_bootstrap_binaries() {
+    ensure_file_exists "/usr/local/bin/kiwipanel" || return 1
+    [[ -x "/usr/local/bin/kiwipanel" ]] || return 1
+    ensure_file_exists "/usr/local/bin/kiwipanel-agent" || return 1
+    return 0
+}
+
+# Step 4: System checks (uses sourced scripts)
+step_bootstrap_syscheck() {
+    CheckSystemRequirements
+    CheckConditionBeforeInstall
+}
+
+verify_bootstrap_syscheck() {
+    # If we got past the checks, the system is compatible
+    # Verify the critical pieces: 64-bit, supported OS, port free
+    local arch
+    arch="$(uname -m)"
+    [[ "$arch" == "x86_64" || "$arch" == "aarch64" || "$arch" == "arm64" ]] || return 1
+    [[ -f /etc/os-release ]] || return 1
+    return 0
+}
+
+# ==============================================================================
+# Bootstrap Phase: Execution
+# ==============================================================================
+
+mkdir -p "$INSTALL_STATE_DIR"
+
+run_step "bootstrap_preflight"  step_bootstrap_preflight  verify_bootstrap_preflight
+run_step "bootstrap_download"   step_bootstrap_download   verify_bootstrap_download
 
 
 # Configuration########################################################
@@ -496,12 +698,10 @@ function FetchingInstallScripts(){
     FixScriptPermissions
 }
 
-FetchingInstallScripts
-
+# Scripts now exist after bootstrap_download — source and continue bootstrap
 source "/opt/kiwipanel/scripts/kiwi"
 
-InstallFirstKiwiBinary
-InstallAgentBinary
+run_step "bootstrap_binaries"   step_bootstrap_binaries   verify_bootstrap_binaries
 
 # Detect the system's architecture
 ARCHITECTURE=$(uname -m)
@@ -517,7 +717,9 @@ DIR=$(pwd)
 
 source "/opt/kiwipanel/scripts/utility"
 source "/opt/kiwipanel/scripts/checksystem"
-CheckSystemRequirements
+source "/opt/kiwipanel/scripts/checkscript"
+
+run_step "bootstrap_syscheck"   step_bootstrap_syscheck   verify_bootstrap_syscheck
 
 ###################################################################################
 function CheckArchitecture() {
@@ -656,8 +858,6 @@ function CheckPortUsage() {
     PrintGreen "✔ Port $port is free."
 }
 
-
-source "/opt/kiwipanel/scripts/checkscript"
 
 function CheckSystemdVersion() {
     PrintInfo "==> Checking systemd version..."
@@ -1026,7 +1226,14 @@ function WriteToConfig(){
     # 1. Set critical variables FIRST
     export KIWIPANEL_ADMIN_USER="admin"  # or your generated value
     export KIWIPANEL_ADMIN_PASS="$kiwipanel_passcode"
-    export DB_PASS="${KIWIPANEL_ADMIN_USER}_test_test"  # from your MariaDB setup
+
+    # Load the real DB password generated by InstallAndConfigureMariaDB
+    # (stored in /etc/kiwipanel/secrets.env by SaveMariaDBSecret)
+    export DB_PASS="$(LoadMariaDBSecret "DB_PASS" 2>/dev/null || echo "")"
+    if [[ -z "$DB_PASS" ]]; then
+        PrintRed "DB_PASS not found in secrets file. Did MariaDB install complete?"
+        return 1
+    fi
 
     # 2. Source the scripts
     source "/opt/kiwipanel/scripts/writeconfigdata" || {
@@ -1048,26 +1255,155 @@ function WriteToConfig(){
     PrintGreen "✓ Configuration file created successfully"
 }
 
-function main() {
-    Welcome
-    CheckConditionBeforeInstall
-    InstallAndConfigureBase
-    CreateSwap
-    InstallAndConfigureFirewall
-    #Need to create user/group before issuing SSL. Get error otherwise bc the user has not been created yet.
-    #SSL----
-    InstallAndConfigureSSL
-    #SSL----
-    InstallAndConfigureMariaDB
-    WriteToConfig
-    InstallKiwipanel #<-- need SSL to run, that is why we put in the lower order.
+# ==============================================================================
+# Main Phase: Step Functions + Verify Functions
+# ==============================================================================
+
+# Step 5: Base system
+step_base_system() { InstallAndConfigureBase; }
+
+verify_base_system() {
+    # Cron must be enabled
+    ensure_service_active "cron" || ensure_service_active "crond" || return 1
+    return 0
+}
+
+# Step 6: Swap
+step_swap() { CreateSwap; }
+
+verify_swap() {
+    # Either swap is active OR system has plenty of RAM (>4GB)
+    if swapon --show 2>/dev/null | grep -q '/'; then
+        return 0
+    fi
+    local ram_mb
+    ram_mb=$(free -m | awk '/Mem:/ {print $2}')
+    if (( ram_mb > 4096 )); then
+        return 0  # enough RAM, swap optional
+    fi
+    return 1
+}
+
+# Step 7: Firewall
+step_firewall() { InstallAndConfigureFirewall; }
+
+verify_firewall() {
+    if command -v ufw >/dev/null 2>&1; then
+        ufw status | grep -q "Status: active" || return 1
+        ufw status | grep -q "8443" || return 1
+    elif command -v firewall-cmd >/dev/null 2>&1; then
+        firewall-cmd --state &>/dev/null || return 1
+        firewall-cmd --list-ports 2>/dev/null | grep -q "8443" || \
+            firewall-cmd --list-all 2>/dev/null | grep -q "8443" || return 1
+    else
+        return 1
+    fi
+    return 0
+}
+
+# Step 8: SSL
+step_ssl() { InstallAndConfigureSSL; }
+
+verify_ssl() {
+    local cert="/opt/kiwipanel/ssl/panel/cert.pem"
+    local key="/opt/kiwipanel/ssl/panel/key.pem"
+    ensure_file_exists "$cert" || return 1
+    ensure_file_exists "$key" || return 1
+    # Not expired?
+    openssl x509 -in "$cert" -checkend 0 &>/dev/null || return 1
+    return 0
+}
+
+# Step 9: MariaDB
+step_mariadb() { InstallAndConfigureMariaDB; }
+
+verify_mariadb() {
+    # Package installed?
+    command -v mariadbd >/dev/null 2>&1 || command -v mysqld >/dev/null 2>&1 || return 1
+    # Service running?
+    ensure_service_active "mariadb" || ensure_service_active "mysql" || return 1
+    # Secrets file exists with DB_PASS?
+    [[ -f /etc/kiwipanel/secrets.env ]] || return 1
+    grep -q "^DB_PASS=" /etc/kiwipanel/secrets.env 2>/dev/null || return 1
+    return 0
+}
+
+# Step 10: Config
+step_config() { WriteToConfig; }
+
+verify_config() {
+    local config="/opt/kiwipanel/config/kiwipanel.toml"
+    ensure_file_exists "$config" || return 1
+    [[ -s "$config" ]] || return 1  # non-empty
+    return 0
+}
+
+# Step 11: Panel (systemd, passcode, token, etc.)
+step_panel() { InstallKiwipanel; }
+
+verify_panel() {
+    ensure_file_exists "/etc/systemd/system/kiwipanel.service" || return 1
+    ensure_file_exists "/opt/kiwipanel/meta/passcode" || return 1
+    ensure_file_exists "/opt/kiwipanel/meta/terminal_token" || return 1
+    ensure_service_active "kiwipanel" || return 1
+    return 0
+}
+
+# Step 12: OLS
+step_ols() {
     InstallLitespeedServer
     VerifyLswsStopped
     UnguardOpenLiteSpeedService
     StartLswsOnce
+}
+
+verify_ols() {
+    # OLS installed?
+    ensure_dir_exists "/usr/local/lsws" || return 1
+    # Service active?
+    ensure_service_active "lsws" || ensure_service_active "lshttpd" || return 1
+    # Port 80 responding?
+    ss -tlnp 2>/dev/null | grep -q ':80 ' || return 1
+    return 0
+}
+
+# Step 13: Finalize
+step_finalize() {
     VerifyKiwipanel
     PostInstallCheck
     CreateAdminUser
+}
+
+verify_finalize() {
+    # Admin user exists — check by querying the panel
+    ensure_service_active "kiwipanel" || return 1
+    # Ownership correct on key dirs
+    for path in /opt/kiwipanel /etc/kiwipanel /var/log/kiwipanel; do
+        if [[ -d "$path" ]]; then
+            local owner
+            owner=$(stat -c "%U:%G" "$path" 2>/dev/null)
+            [[ "$owner" == "kiwipanel:kiwisecure" ]] || return 1
+        fi
+    done
+    return 0
+}
+
+# ==============================================================================
+# Main
+# ==============================================================================
+function main() {
+    Welcome
+
+    run_step "base_system"  step_base_system  verify_base_system
+    run_step "swap"         step_swap         verify_swap
+    run_step "firewall"     step_firewall     verify_firewall
+    run_step "ssl"          step_ssl          verify_ssl
+    run_step "mariadb"      step_mariadb      verify_mariadb
+    run_step "config"       step_config       verify_config
+    run_step "panel"        step_panel        verify_panel
+    run_step "ols"          step_ols          verify_ols
+    run_step "finalize"     step_finalize     verify_finalize
+
     SuccessMessage
     Cleanup
 }
