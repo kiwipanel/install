@@ -8,6 +8,10 @@
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/b1233420d6264734b6c79190bf03c354)](https://app.codacy.com/gh/kiwipanel/kiwipanel/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 [![codecov](https://codecov.io/github/kiwipanel/kiwipanel/graph/badge.svg?token=LRQW6YYSOC)](https://codecov.io/github/kiwipanel/kiwipanel)
 
+<p align="center">
+  <img src="screenshot.png" alt="KiwiPanel Dashboard" width="600">
+</p>
+
 ## KiwiPanel
 
 ⚠️ WARNING: PRE-ALPHA RELEASE - DO NOT DEPLOY TO PRODUCTION
@@ -193,38 +197,54 @@ The roadmap below reflects the current direction, with progress status based on 
 
 ---
 
-### Phase 3 — Developer & Ops Experience 🟡 IN PROGRESS
-**Goal:** Make KiwiPanel friendly for developers and sysadmins.
+### Phase 3 — Core Reliability & Operations ⬜ PLANNED
+**Goal:** Make KiwiPanel production-trustworthy with automated recovery, consistent backups, and resource enforcement.
 
-- [x] Full CLI framework with comprehensive commands
-  - System checks and diagnostics
-  - Service management
-  - Firewall operations
-  - Password management
-  - Terminal access
-  - System hardening
-  - Maintenance operations
-- [x] Environment inspection & health checks
-- [x] Read-only / audit mode (demo mode)
+- [ ] Idempotent installer with atomic step guarantees and CI matrix testing (Ubuntu 22/24, Debian 12, AlmaLinux 9)
+- [ ] Agent protocol hardening — strict typed RPC, no generic command execution
+- [ ] Service watchdog via systemd DBus subscription with circuit breaker and auto-heal
+- [ ] Local backups with consistency guarantees (single-transaction dumps, double-rsync) and restore isolation via staging
+- [ ] Disk + resource limit enforcement via Linux quotas (`setquota`/`repquota`)
+- [ ] Full domain management (DNS zones, subdomains, aliases, SSL auto-provisioning)
 - [ ] Scriptable actions with JSON/stdout-friendly output
-- [ ] Backup primitives (files + databases): restic, rclone, rsync, duplicacy
-- [ ] Versioned configuration snapshots
 - [ ] Filesystem quotas implementation
 
 ---
 
-### Phase 4 — Extensibility & Ecosystem
-**Goal:** Grow without becoming bloated.
+### Phase 4 — Security Hardening & Isolation ⬜ PLANNED
+**Goal:** Harden multi-tenant isolation and detect configuration anomalies.
 
-- [ ] Plugin / module system (strictly sandboxed)
-- [ ] Roundcube
-- [ ] Hook system for install/update events
+- [ ] Config drift detection with normalized hashing and ownership model
+- [ ] CageFS Tier 1 (systemd-native per-user filesystem isolation)
+- [ ] WAF integration (Coraza for panel, OLS ModSecurity for hosted sites)
+- [ ] Fail2ban integration with per-jail configuration
+- [ ] Automated security scanning (ClamAV, malware detection)
+- [ ] SELinux/AppArmor compatibility
+
+---
+
+### Phase 5 — Migration & Growth ⬜ PLANNED
+**Goal:** Unlock new users by making KiwiPanel the obvious migration target.
+
+- [ ] DirectAdmin migration adapter with pre-flight compatibility analysis
+- [ ] Migration framework with `MigrationSource` interface and dry-run mode
+- [ ] Per-site traffic accounting via streaming log aggregation
+- [ ] CLI + API polish (JSON API layer, OpenAPI spec, scripting support)
+
+---
+
+### Phase 6 — Premium & Ecosystem ⬜ PLANNED
+**Goal:** Features that justify paid tiers and grow the ecosystem.
+
+- [ ] Remote backups (S3, B2, SFTP) — builds on local backup infrastructure
+- [ ] Rootless Docker addon with per-user containers
+- [ ] Performance tuning suite (jemalloc, OPcache presets, MariaDB auto-tuning)
+- [ ] One-click app installer (WordPress, Laravel, Node.js)
+- [ ] Observability timeline (unified event view across all features)
 - [ ] External monitoring integration (Prometheus-compatible metrics)
-- [ ] WordPress Toolkit
-- [ ] Tracking notification via Telegram bot.
-- [ ] Clone whole VPS and restore it on another server
-- [ ] Backup to Cloudflare R2 automatically via setting on dashboard.
+- [ ] Webhook notifications (Slack, Discord, email on events)
 
+> 📋 See [plans/ideas.md](plans/ideas.md) for the full 31-item feature roadmap with implementation details, design decisions, and strategic rationale.
 
 ---
 
