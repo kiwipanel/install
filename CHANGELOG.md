@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.7.6
+
+First release of KiwiPanel!
+
 ## v0.7.5
   - Merge pull request from kiwipanel/feature/passcode
   - fix golangci - G120, G122
