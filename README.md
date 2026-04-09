@@ -202,6 +202,7 @@ The roadmap below reflects the current direction, with progress status based on 
 
 - [ ] Idempotent installer with atomic step guarantees and CI matrix testing (Ubuntu 22/24, Debian 12, AlmaLinux 9)
 - [ ] Agent protocol hardening — strict typed RPC, no generic command execution
+- [x] Self-healing systemd drop-in overrides for critical services (lsws, mariadb, redis) — automatic crash recovery even when panel/agent are down
 - [ ] Service watchdog via systemd DBus subscription with circuit breaker and auto-heal
 - [ ] Local backups with consistency guarantees (single-transaction dumps, double-rsync) and restore isolation via staging
 - [ ] Disk + resource limit enforcement via Linux quotas (`setquota`/`repquota`)
