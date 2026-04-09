@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.7
+
+- Merge pull request #148 from kiwipanel/feature/watch
+- feat: update readme about the self-healing feature
+- feat: added self-heal system using systemd
+- feat: remove option to set opache value
+- test: fix test
+- fix: setting opache memory globally, not each site
+- feat: remove notification, clean up recent activity
+- feat: tracking editing profile
+- hotfix: release on public should be identical to the private one
+- release v0.7.6
 ## v0.7.6
 
 - Merge pull request #147 from kiwipanel/feature/site 
