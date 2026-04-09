@@ -1075,6 +1075,74 @@ function DisableSelinuxRuntime() {
 }
 
 
+# ------------------------------------------------------------------------------
+# Self-Healing: Install systemd drop-in overrides for critical services
+# ------------------------------------------------------------------------------
+# Adds Restart=always + rate limiting to third-party services (lsws, mariadb)
+# so systemd auto-restarts them on crash — even if the panel and agent are down.
+# KiwiPanel's own services already have restart policies in their unit files.
+# ------------------------------------------------------------------------------
+function SetupServiceSelfHealing() {
+    PrintInfo "==> Configuring self-healing restart policies..."
+
+    # Services to harden. Only includes services we manage — KiwiPanel's own
+    # services (kiwipanel.service, kiwipanel-agent.service) already have
+    # Restart=on-failure baked into their unit files.
+    local services=()
+
+    # OpenLiteSpeed — detect actual service name (lsws, lshttpd, or openlitespeed)
+    for svc in lsws lshttpd openlitespeed; do
+        if systemctl list-unit-files "${svc}.service" 2>/dev/null | grep -q "${svc}"; then
+            services+=("${svc}")
+            break
+        fi
+    done
+
+    # MariaDB — detect mariadb vs mysql
+    for svc in mariadb mysql; do
+        if systemctl list-unit-files "${svc}.service" 2>/dev/null | grep -q "${svc}"; then
+            services+=("${svc}")
+            break
+        fi
+    done
+
+    # Redis — optional, only if installed
+    if systemctl list-unit-files redis-server.service 2>/dev/null | grep -q redis-server; then
+        services+=("redis-server")
+    elif systemctl list-unit-files redis.service 2>/dev/null | grep -q redis; then
+        services+=("redis")
+    fi
+
+    if [[ ${#services[@]} -eq 0 ]]; then
+        PrintWarn "No third-party services detected for self-healing"
+        return 0
+    fi
+
+    for service in "${services[@]}"; do
+        local override_dir="/etc/systemd/system/${service}.service.d"
+        mkdir -p "$override_dir"
+
+        cat > "${override_dir}/kiwipanel-restart.conf" << 'OVERRIDE'
+# Installed by KiwiPanel — automatic restart on failure
+# See: https://kiwipanel.github.io/docs/self-healing
+[Unit]
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Restart=on-failure
+RestartSec=5
+OVERRIDE
+
+        chmod 644 "${override_dir}/kiwipanel-restart.conf"
+        PrintInfo "  Added restart policy for ${service}"
+    done
+
+    # Reload systemd to apply all overrides
+    systemctl daemon-reload
+    PrintGreen "✓ Self-healing restart policies configured"
+}
+
 function VerifyKiwipanel(){
     PrintInfo "==> Verifying ownership"
     for path in /opt/kiwipanel /etc/kiwipanel /var/log/kiwipanel /var/lib/kiwipanel; do
@@ -1313,6 +1381,7 @@ verify_ols() {
 # Step 13: Finalize
 step_finalize() {
     VerifyKiwipanel
+    SetupServiceSelfHealing
     PostInstallCheck
     CreateAdminUser
 }
@@ -1322,6 +1391,18 @@ verify_finalize() {
     ensure_service_active "kiwipanel" || return 1
     # Admin user creation writes to the database; check the DB file exists
     ensure_file_exists "/opt/kiwipanel/data/kiwipanel.db" || return 1
+    # Self-healing drop-in must exist for at least one managed service
+    local has_dropin=false
+    for svc in lsws lshttpd openlitespeed mariadb mysql; do
+        if [[ -f "/etc/systemd/system/${svc}.service.d/kiwipanel-restart.conf" ]]; then
+            has_dropin=true
+            break
+        fi
+    done
+    if ! $has_dropin; then
+        PrintWarn "No self-healing drop-in found for any core service"
+        # Non-fatal — don't block install for this
+    fi
     return 0
 }
 

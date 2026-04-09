@@ -9,7 +9,7 @@
 [![codecov](https://codecov.io/github/kiwipanel/kiwipanel/graph/badge.svg?token=LRQW6YYSOC)](https://codecov.io/github/kiwipanel/kiwipanel)
 
 <p align="center">
-  <img src="screenshot.png" alt="KiwiPanel Dashboard" width="600">
+  <img src="static/metric.png" alt="KiwiPanel Dashboard" width="600">
 </p>
 
 ## KiwiPanel
