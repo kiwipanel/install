@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.8
+
+- Merge pull request #152 from kiwipanel/feature/setting
+- feat: add the service health
+- Merge pull request #150 from kiwipanel/feature/phpset
+- chore: formating
+- feat: add more info to the dashboard
+- fix test case
+- feat: add health check and self-fix
+- feat: add self-healing
+- fix - setting opache
+- release v0.7.7
 ## v0.7.7
 
 - Merge pull request #148 from kiwipanel/feature/watch
