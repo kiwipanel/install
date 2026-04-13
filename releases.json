@@ -2,29 +2,29 @@
   "schema": 2,
   "channels": {
     "stable": {
-      "latest": "0.7.8"
+      "latest": "0.7.9"
     }
   },
   "releases": [
     {
-      "version": "0.7.8",
+      "version": "0.7.9",
       "channel": "stable",
-      "release_date": "2026-04-12",
+      "release_date": "2026-04-13",
       "os": "linux",
       "arch": "amd64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.7.8/kiwipanel-linux-amd64",
-      "sha256": "cd6ba9bf0157bac04a3b4f31a6ceb238aacef54c0e4d78f9b7d4dec0c9630082",
-      "notes": "Release v0.7.8"
+      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.7.9/kiwipanel-linux-amd64",
+      "sha256": "d4835f692302df61a7aad6599b901c59a74f5177a64cf4f9ee5955365ba94815",
+      "notes": "Release v0.7.9"
     },
     {
-      "version": "0.7.8",
+      "version": "0.7.9",
       "channel": "stable",
-      "release_date": "2026-04-12",
+      "release_date": "2026-04-13",
       "os": "linux",
       "arch": "arm64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.7.8/kiwipanel-linux-arm64",
-      "sha256": "eec9c5c9155bda43bf25a47a86c79dc00177a58e586f66cefb4d2d84cf855ef5",
-      "notes": "Release v0.7.8"
+      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.7.9/kiwipanel-linux-arm64",
+      "sha256": "74ad41019c24062695c07dfab013d68523fe805ff71321216f70b47f9b1cff0f",
+      "notes": "Release v0.7.9"
     }
   ]
 }
