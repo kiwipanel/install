@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.9
+
+- update db
+- Merge pull request #153 from kiwipanel/feature/watching
+- feat: php log globally
+- feat: update the heal-watching, reduce the inteval to 10 seconds
+- feat: new sql schema
+- fix: showing disk type
+- feat: reset uptime
+- feat: tweak watch
+- feat: add test cases for watching feature
+- release v0.7.8
 ## v0.7.8
 
 - Merge pull request #152 from kiwipanel/feature/setting
