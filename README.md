@@ -39,6 +39,7 @@ It focuses on simplicity, transparency, and sane defaults — without bloat or l
 - **Dashboard** - Real-time VPS performance metrics, service health checks, service control (start/stop/restart)
 - **Security** - SSH key management, SSH hardening (port, password auth), firewall rules (UFW/firewalld) with auto-rollback, Fail2ban management, kernel hardening, demo mode
 - **Server Settings** - Hostname, timezone, swap management, system updates with async loading
+- **System Management** - Process viewer with kill capability and blocklist protection, open ports viewer (TCP/UDP) with auto-refresh, per-mount and per-user disk usage breakdown with threshold warnings, scheduled reboot with systemd timers, NTP time sync status and server configuration, DNS resolver configuration with Cloudflare/Google/Quad9 presets, system-wide cron job viewer with human-readable schedules, sysctl kernel parameter tuning with presets, OS-level security audit log (SSH/sudo/auth events from journalctl)
 - **CLI** - Comprehensive `kiwipanel` CLI with system checks, diagnostics, service management, and hardening
 
 ### Built for Developers & VPS Users
@@ -193,8 +194,16 @@ The roadmap below reflects the current direction, with progress status based on 
 - [x] Fail2ban integration with jail management and banned IP overview
 - [x] SSH hardening (port change, password auth toggle, authorized key management) with rollback timer
 - [x] System/OS settings (hostname, timezone, swap management, system updates)
+- [x] Process viewer with kill capability and blocklist protection
+- [x] Open ports viewer (TCP/UDP) with auto-refresh
+- [x] Per-mount and per-user disk usage breakdown with threshold warnings
+- [x] OS-level security audit log (SSH/sudo/auth events from journalctl)
+- [x] Scheduled reboot with systemd timers (immediate or scheduled)
+- [x] NTP time synchronization status and server configuration
+- [x] DNS resolver configuration with Cloudflare/Google/Quad9 presets
+- [x] System-wide cron job viewer with human-readable schedules
+- [x] Sysctl kernel parameter tuning with presets
 - [ ] SELinux/AppArmor compatibility
-- [ ] Port exposure and service visibility controls
 - [ ] Explicit warnings for unsafe configurations
 
 
