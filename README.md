@@ -9,7 +9,7 @@
 [![codecov](https://codecov.io/github/kiwipanel/kiwipanel/graph/badge.svg?token=LRQW6YYSOC)](https://codecov.io/github/kiwipanel/kiwipanel)
 
 <p align="center">
-  <img src="static/metric.png" alt="KiwiPanel Dashboard" width="600">
+  <img src="screenshot.png" alt="KiwiPanel Dashboard" width="600">
 </p>
 
 ## KiwiPanel
@@ -37,7 +37,8 @@ It focuses on simplicity, transparency, and sane defaults — without bloat or l
 - **Plans & Quotas** - Resource plans with quota enforcement (websites, domains, databases, disk, feature toggles)
 - **User Management** - Role-based access control with isolated Linux accounts, auto-generated credentials for new clients
 - **Dashboard** - Real-time VPS performance metrics, service health checks, service control (start/stop/restart)
-- **Security** - SSH key management, firewall rules (UFW/firewalld), kernel hardening, demo mode
+- **Security** - SSH key management, SSH hardening (port, password auth), firewall rules (UFW/firewalld) with auto-rollback, Fail2ban management, kernel hardening, demo mode
+- **Server Settings** - Hostname, timezone, swap management, system updates with async loading
 - **CLI** - Comprehensive `kiwipanel` CLI with system checks, diagnostics, service management, and hardening
 
 ### Built for Developers & VPS Users
@@ -159,7 +160,7 @@ The roadmap below reflects the current direction, with progress status based on 
 **Goal:** Secure-by-default without hiding the system.
 
 - [x] Security audit via `kiwipanel check` command
-- [x] Firewall management (UFW for Debian family, firewalld for CentOS family)
+- [x] Firewall management (UFW for Debian family, firewalld for RHEL family) with preview + auto-rollback
 - [x] SSH key management
 - [x] Website terminal sandboxing (5-layer defense-in-depth):
   - [x] systemd transient service sandbox (`ProtectSystem=strict`, `ProtectHome=tmpfs`, `PrivateTmp`, `NoNewPrivileges`, `MemoryMax=256M`, `CPUQuota=50%`, `TasksMax=50`)
@@ -189,7 +190,9 @@ The roadmap below reflects the current direction, with progress status based on 
     - [x] Chroot jail setup (`dev/`, `etc/`, `tmp/` directories)
     - [x] suEXEC verification agent endpoint
     - [x] Global toggle in Settings → PHP Security
-- [ ] Fail2ban integration (optional, transparent configs)
+- [x] Fail2ban integration with jail management and banned IP overview
+- [x] SSH hardening (port change, password auth toggle, authorized key management) with rollback timer
+- [x] System/OS settings (hostname, timezone, swap management, system updates)
 - [ ] SELinux/AppArmor compatibility
 - [ ] Port exposure and service visibility controls
 - [ ] Explicit warnings for unsafe configurations
@@ -200,10 +203,10 @@ The roadmap below reflects the current direction, with progress status based on 
 ### Phase 3 — Core Reliability & Operations ⬜ PLANNED
 **Goal:** Make KiwiPanel production-trustworthy with automated recovery, consistent backups, and resource enforcement.
 
-- [ ] Idempotent installer with atomic step guarantees and CI matrix testing (Ubuntu 22/24, Debian 12, AlmaLinux 9)
+- [x] Idempotent installer with step runner, verify-before-skip, and resume support (tested on Ubuntu 22/24, Debian 12/13, AlmaLinux 9/10, Rocky 9)
 - [ ] Agent protocol hardening — strict typed RPC, no generic command execution
 - [x] Self-healing systemd drop-in overrides for critical services (lsws, mariadb, redis) — automatic crash recovery even when panel/agent are down
-- [ ] Service watchdog via systemd DBus subscription with circuit breaker and auto-heal
+- [x] Service watchdog via systemd DBus subscription with circuit breaker and auto-heal
 - [ ] Local backups with consistency guarantees (single-transaction dumps, double-rsync) and restore isolation via staging
 - [ ] Disk + resource limit enforcement via Linux quotas (`setquota`/`repquota`)
 - [ ] Full domain management (DNS zones, subdomains, aliases, SSL auto-provisioning)
@@ -218,7 +221,6 @@ The roadmap below reflects the current direction, with progress status based on 
 - [ ] Config drift detection with normalized hashing and ownership model
 - [ ] CageFS Tier 1 (systemd-native per-user filesystem isolation)
 - [ ] WAF integration (Coraza for panel, OLS ModSecurity for hosted sites)
-- [ ] Fail2ban integration with per-jail configuration
 - [ ] Automated security scanning (ClamAV, malware detection)
 - [ ] SELinux/AppArmor compatibility
 
