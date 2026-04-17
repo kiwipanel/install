@@ -1296,7 +1296,44 @@ verify_swap() {
 }
 
 # Step 7: Firewall
-step_firewall() { InstallAndConfigureFirewall; }
+step_firewall() {
+    InstallAndConfigureFirewall
+
+    # Install fail2ban (intrusion prevention)
+    PrintInfo "==> Installing fail2ban..."
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get install -y fail2ban
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y fail2ban
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y fail2ban
+    else
+        PrintWarn "Could not install fail2ban: unsupported package manager"
+        return 0
+    fi
+    systemctl enable --now fail2ban
+
+    # Configure default sshd jail for KiwiPanel
+    PrintInfo "==> Configuring fail2ban sshd jail..."
+    mkdir -p /etc/fail2ban/jail.d
+    cat > /etc/fail2ban/jail.d/kiwipanel.local <<'EOF'
+[sshd]
+enabled = true
+port = ssh
+backend = systemd
+maxretry = 5
+bantime = 3600
+findtime = 600
+
+[recidive]
+enabled = true
+bantime = 604800
+findtime = 86400
+maxretry = 5
+EOF
+    fail2ban-client reload
+    PrintGreen "✓ fail2ban installed, configured, and started"
+}
 
 verify_firewall() {
     if command -v ufw >/dev/null 2>&1; then
@@ -1309,6 +1346,9 @@ verify_firewall() {
     else
         return 1
     fi
+    # Verify fail2ban is installed and running
+    ensure_package_installed "fail2ban" || return 1
+    ensure_service_active "fail2ban" || return 1
     return 0
 }
 
