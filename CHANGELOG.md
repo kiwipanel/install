@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.8.1 (2026-04-17)
+
+- feat: update database schema, update version
+- Merge pull request #159 from kiwipanel/feature/backup
+- feat: add recidive to fail2ban
+- feat: install fail2ban, add the scrollbar to audilot
+- feat: installing fail2ban
+- fix code quality-context scope
+- feat: backup locally
+- release v0.8.0
 ## v0.8.0 (2026-04-17)
 
 - Merge pull request #157 from kiwipanel/feature/setting
