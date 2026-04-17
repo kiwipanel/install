@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.8.0 (2026-04-17)
+
+- Merge pull request #157 from kiwipanel/feature/setting
+- fix test
+- feat: cron
+- feat: network_storage_process
+- feat: Sysctl Curated Tuning
+- update readme
+- chore: fmt
+- feat: reduce time loading to setting/server
+- fix test case
+- feat: fail2ban
+- feat: hardening
+- feat: firewall
+- feat: implementing update system
+- feat: setting timezone, swap for vps
+- fix golangci-lint
+- fix fmt
+- feat: setting-> server page
+- Merge pull request #155 from kiwipanel/feature/global
+- feat: render beautifully phpinfo()
+- fix context-watchdog
+- feat: saving new php setting will update automatically
+- Merge pull request #154 from kiwipanel/feature/php
+- feat: calculate amount of opcache based on sites per php version
+- feat: setting a looser opcache
+- fix test case php setting
+- feat: setting opcache with threshold
+- fix: the hyperlink when configure
+- feat: showing alert when setting opcache memory wrong
+- feat: auto-fix php error or show error
+- feat: self-restart php
+- feat: self-healing php
+- fix: watchdog php correctly
+- feat: using agent to read php log
+- feat: watch detect php
+- release v0.7.9
 ## v0.7.9
 
 - update db
