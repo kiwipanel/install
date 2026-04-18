@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.8.2 (2026-04-18)
+
+- feat: refactor backup
+- release v0.8.1
 ## v0.8.1 (2026-04-17)
 
 - feat: update database schema, update version
