@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.8.3 (2026-04-18)
+
+- release v0.8.2
+- Merge pull request #161 from kiwipanel/feature/backup-security
+- update version
+- feat: add flexible layouts for process, fail2ban and audit
+- feat: delete backup now that works
+- test: added test case for backup
+- fix scheduled tests
+- feat: backup tracking, added security measure
 ## v0.8.2 (2026-04-18)
 
 - feat: refactor backup
