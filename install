@@ -652,8 +652,34 @@ kiwipanel_d_start_time=$(date +%s)
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m' #NC: Not color: reset color to the default
-IPADDRESS=$(curl -s --connect-timeout 5 https://cpanel.net/showip.cgi || hostname -I | awk '{print $1}')
-[[ -z "$IPADDRESS" ]] && IPADDRESS="<YOUR_SERVER_IP>"
+
+GetPublicIP() {
+    local ip
+    # Try public IP lookup services (in order), each with a short timeout
+    for url in "https://myip.cpanel.net" "https://ifconfig.me" "https://icanhazip.com"; do
+        ip=$(curl -s -4 --connect-timeout 5 --max-time 8 "$url" 2>/dev/null | tr -d '[:space:]')
+        if [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            echo "$ip"
+            return 0
+        fi
+    done
+
+    # Fallback: local IP via hostname -I
+    ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    if [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        echo "$ip"
+        return 0
+    fi
+
+    return 1
+}
+
+IPADDRESS=$(GetPublicIP)
+
+if [[ -z "$IPADDRESS" ]]; then
+    IPADDRESS="<YOUR_SERVER_IP>"
+fi
+
 DIR=$(pwd)
 
 source "/opt/kiwipanel/scripts/utility"
