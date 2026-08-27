@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.8.5 (2026-08-27)
+
+- Merge pull request #163 from kiwipanel/feature/server
+- fix vulnerable dependecies
+- feat: upgrade dependencies
+- fix firewall installation on almalinux10
+- feat: add deviceallow for terminal
+- fix-audit log on ubuntu
+- feat: reset admin password or creating first admin via cli
+- feat: avoiding colision when linux has the same/existing UID number
+- fix: showing ssl correctly
+- feat: htaccess-double-check
+- feat: refactor proxy setting web:
+- feat: proxy_web
+- feat: htaccess, proxy-web
+- fix missing js variable
+- feat: clean you server
 ## v0.8.3 (2026-04-18)
 
 - release v0.8.2
