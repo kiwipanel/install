@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.8.6 (2026-09-04)
+
+- Merge pull request #164 from kiwipanel/feature/site
+- fixed golang quality as suggested by CI
+- feat: using rotated csrf key
+- fixed ci given os incompatibility
+- fixed CI failure
+- feat: harness and improve security
+- feat: p0 hardening
+- fixed: installing mariabd on almalinux 10
+- fixed firewall on almalinux 10
+- Release 0.8.5
 ## v0.8.5 (2026-08-27)
 
 - Merge pull request #163 from kiwipanel/feature/server
