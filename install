@@ -115,6 +115,39 @@ chmod 750 "$KIWIPANEL_DIR" "$LOG_DIR" # rwx for owner+group only; no access for 
 chmod 640 "$LOG_FILE"
 
 # ==============================================================================
+# Installer Singleton Lock
+# ==============================================================================
+# Keep the file descriptor open for the lifetime of this process. The kernel
+# releases the advisory lock automatically on every exit path; the stable lock
+# file must not be deleted to bypass an active lock.
+readonly INSTALLER_LOCK_FILE="${KIWIPANEL_INSTALLER_LOCK_FILE:-/run/kiwipanel-installer.lock}"
+readonly INSTALLER_LOCK_FD=200
+
+function AcquireInstallerLock() {
+    if ! command -v flock >/dev/null 2>&1; then
+        PrintRed "flock is required to prevent concurrent installer execution"
+        return 1
+    fi
+
+    if ! exec 200<>"$INSTALLER_LOCK_FILE"; then
+        PrintRed "Failed to open installer lock file: $INSTALLER_LOCK_FILE"
+        return 1
+    fi
+
+    if ! flock -n "$INSTALLER_LOCK_FD"; then
+        PrintRed "Another KiwiPanel installer is already running."
+        PrintRed "Wait for that process to finish; the lock is released automatically when it exits."
+        return 1
+    fi
+
+    LogInfo "Installer lock acquired: file=$INSTALLER_LOCK_FILE pid=$$"
+}
+
+if ! AcquireInstallerLock; then
+    exit 1
+fi
+
+# ==============================================================================
 # Step Runner Framework
 # ==============================================================================
 # Adds resume-after-interruption capability. Each install step is wrapped with
@@ -338,6 +371,33 @@ LSWS_SERVICE=""
 # Fetching install scripts
 # ------------------------------------------------------------------------------
 
+function VerifySHA256Checksum() {
+    local file="$1"
+    local expected="$2"
+    local label="$3"
+    local checksum_output
+    local actual
+
+    if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+        PrintRed "$label has an invalid SHA-256 checksum in the release catalog"
+        return 1
+    fi
+    if ! checksum_output="$(sha256sum "$file" 2>/dev/null)"; then
+        PrintRed "Failed to calculate the $label SHA-256 checksum"
+        return 1
+    fi
+    actual="${checksum_output%% *}"
+
+    if [[ "$actual" != "$expected" ]]; then
+        PrintRed "$label checksum mismatch!"
+        PrintRed "  Expected: $expected"
+        PrintRed "  Actual:   $actual"
+        return 1
+    fi
+
+    PrintGreen "✓ $label checksum verified"
+}
+
 function DownloadPackage() {
     # 1. Download architecture-independent scaffold (scripts, config, systemd, templates)
     PrintInfo "==> Downloading KiwiPanel scaffold"
@@ -350,6 +410,15 @@ function DownloadPackage() {
     if [[ ! -s "$TMP_ZIP" ]]; then
         PrintRed "Downloaded scaffold is empty"
         exit 1
+    fi
+
+    if [[ -n "${KIWIPANEL_SCAFFOLD_SHA256:-}" && "$KIWIPANEL_SCAFFOLD_SHA256" != "Not provided" ]]; then
+        if ! VerifySHA256Checksum "$TMP_ZIP" "$KIWIPANEL_SCAFFOLD_SHA256" "Scaffold"; then
+            rm -f "$TMP_ZIP"
+            exit 1
+        fi
+    else
+        PrintWarn "No scaffold SHA-256 checksum available, skipping verification"
     fi
 
     # 2. Download architecture-specific binary
@@ -374,19 +443,12 @@ function DownloadPackage() {
 
     # 3. Validate SHA-256 checksum of binary if provided
     if [[ -n "${KIWIPANEL_SHA256:-}" && "$KIWIPANEL_SHA256" != "Not provided" ]]; then
-        PrintInfo "==> Verifying SHA-256 checksum..."
-        local actual_sha256
-        actual_sha256=$(sha256sum "$TMP_BINARY" | cut -d' ' -f1)
-        if [[ "$actual_sha256" != "$KIWIPANEL_SHA256" ]]; then
-            PrintRed "Checksum mismatch!"
-            PrintRed "  Expected: $KIWIPANEL_SHA256"
-            PrintRed "  Actual:   $actual_sha256"
+        if ! VerifySHA256Checksum "$TMP_BINARY" "$KIWIPANEL_SHA256" "KiwiPanel binary"; then
             rm -f "$TMP_BINARY"
             exit 1
         fi
-        PrintGreen "✓ Checksum verified"
     else
-        PrintWarn "No SHA-256 checksum available, skipping verification"
+        PrintWarn "No KiwiPanel binary SHA-256 checksum available, skipping verification"
     fi
 
     # 4. Download architecture-specific agent binary
@@ -401,6 +463,15 @@ function DownloadPackage() {
     if [[ ! -s "$TMP_AGENT_BINARY" ]]; then
         PrintRed "Downloaded agent binary is empty"
         exit 1
+    fi
+
+    if [[ -n "${KIWIPANEL_AGENT_SHA256:-}" && "$KIWIPANEL_AGENT_SHA256" != "Not provided" ]]; then
+        if ! VerifySHA256Checksum "$TMP_AGENT_BINARY" "$KIWIPANEL_AGENT_SHA256" "KiwiPanel agent binary"; then
+            rm -f "$TMP_AGENT_BINARY"
+            exit 1
+        fi
+    else
+        PrintWarn "No KiwiPanel agent binary SHA-256 checksum available, skipping verification"
     fi
 
     PrintGreen "✓ All downloads complete"
@@ -542,16 +613,20 @@ function ShowVersion() {
     NOTES=$(echo "$RELEASE" | jq -r '.notes // "No release notes"')
     RELEASE_DATE=$(echo "$RELEASE" | jq -r '.release_date // "Unknown"')
     SHA256=$(echo "$RELEASE" | jq -r '.sha256 // "Not provided"')
+    AGENT_SHA256=$(echo "$RELEASE" | jq -r '.agent_sha256 // "Not provided"')
+    SCAFFOLD_SHA256=$(echo "$RELEASE" | jq -r '.scaffold_sha256 // "Not provided"')
 
     # Write plain-text version pointer (authoritative)
     echo "$VERSION" > "$VERSION_FILE"
 
-    echo "Channel        : $CHANNEL"
-    echo "Latest Version : $VERSION"
-    echo "Release Date   : $RELEASE_DATE"
-    echo "Architecture   : $ARCH"
-    echo "SHA256         : $SHA256"
-    echo "Notes          : $NOTES"
+    echo "Channel         : $CHANNEL"
+    echo "Latest Version  : $VERSION"
+    echo "Release Date    : $RELEASE_DATE"
+    echo "Architecture    : $ARCH"
+    echo "Binary SHA256   : $SHA256"
+    echo "Agent SHA256    : $AGENT_SHA256"
+    echo "Scaffold SHA256 : $SCAFFOLD_SHA256"
+    echo "Notes           : $NOTES"
 
     # Export for installer/update steps
     export KIWIPANEL_VERSION="$VERSION"
@@ -560,6 +635,8 @@ function ShowVersion() {
     export KIWIPANEL_OS="$OS"
     export KIWIPANEL_CHANNEL="$CHANNEL"
     export KIWIPANEL_SHA256="$SHA256"
+    export KIWIPANEL_AGENT_SHA256="$AGENT_SHA256"
+    export KIWIPANEL_SCAFFOLD_SHA256="$SCAFFOLD_SHA256"
 
     # Derive agent and scaffold URLs from same release tag
     # e.g. .../v0.4.2/kiwipanel-linux-amd64 → .../v0.4.2/kiwipanel-agent-linux-amd64
@@ -608,15 +685,50 @@ function FixScriptPermissions() {
     fi
 }
 
+function EnsureInstallStateDirectory() {
+    local state_dir="$INSTALL_STATE_DIR"
+
+    if [[ -L "$state_dir" || ( -e "$state_dir" && ! -d "$state_dir" ) ]]; then
+        PrintRed "Installer state path is not a trusted directory: $state_dir"
+        return 1
+    fi
+
+    if [[ ! -e "$state_dir" ]]; then
+        if ! mkdir -p -- "$state_dir" || \
+           ! chown root:root "$state_dir" || \
+           ! chmod 700 "$state_dir"; then
+            PrintRed "Failed to create secure installer state directory: $state_dir"
+            return 1
+        fi
+        return 0
+    fi
+
+    local identity=""
+    if ! identity="$(stat -c '%u|%g|%a' -- "$state_dir" 2>/dev/null)"; then
+        PrintRed "Cannot inspect installer state directory: $state_dir"
+        return 1
+    fi
+
+    if [[ "$identity" != "0|0|700" ]]; then
+        PrintRed "Unsafe installer state directory: $state_dir (observed ${identity//|/ }, expected 0 0 700)"
+        PrintRed "Refusing to repair existing installer state automatically; verify its contents before restoring root:root/0700"
+        return 1
+    fi
+}
+
 function CreateSystemDirectories() {
     PrintInfo "==> Creating KiwiPanel system directories"
     mkdir -p /etc/kiwipanel
     mkdir -p /var/log/kiwipanel
     mkdir -p /var/lib/kiwipanel/update
+    EnsureInstallStateDirectory
     mkdir -p /run/kiwipanel
-    chown -R kiwipanel:kiwisecure /etc/kiwipanel
+    # The secrets parent must not be renameable by the unprivileged panel service.
+    # Group traversal lets the panel read explicitly group-readable configuration.
+    chown root:kiwisecure /etc/kiwipanel
     chown -R kiwipanel:kiwisecure /var/log/kiwipanel
-    chown -R kiwipanel:kiwisecure /var/lib/kiwipanel
+    chown root:kiwisecure /var/lib/kiwipanel
+    chown -R kiwipanel:kiwisecure /var/lib/kiwipanel/update
     chown root:kiwisecure /run/kiwipanel
     chmod 750 /etc/kiwipanel
     chmod 750 /var/log/kiwipanel
@@ -675,11 +787,9 @@ GetPublicIP() {
 }
 
 IPADDRESS=$(GetPublicIP)
-
 if [[ -z "$IPADDRESS" ]]; then
     IPADDRESS="<YOUR_SERVER_IP>"
 fi
-
 DIR=$(pwd)
 
 source "/opt/kiwipanel/scripts/utility"
@@ -962,20 +1072,36 @@ function InstallSystemdService() {
         install_unit_file "kiwipanel-update.path" || return 1
     fi
 
-    # Install agent service and socket
+    # Install the agent service. The always-running service is the sole owner
+    # of the Unix socket; the agent creates and guards the listener itself. The
+    # legacy kiwipanel-agent.socket unit is intentionally NOT installed.
     if [[ -f "$INSTALL_DIR/systemd/kiwipanel-agent.service" ]]; then
         install_unit_file "kiwipanel-agent.service" || return 1
     fi
 
-    if [[ -f "$INSTALL_DIR/systemd/kiwipanel-agent.socket" ]]; then
-        install_unit_file "kiwipanel-agent.socket" || return 1
+    # Convergence for upgrades and repair runs: stop and disable the legacy
+    # socket-activation unit before its stale unit file is removed below, so
+    # existing hosts never end up with two units claiming one socket lifecycle.
+    if systemctl list-unit-files kiwipanel-agent.socket >/dev/null 2>&1; then
+        systemctl stop kiwipanel-agent.socket >/dev/null 2>&1 || true
+        systemctl disable kiwipanel-agent.socket >/dev/null 2>&1 || true
     fi
-
 
     # 2. Reload Daemon (Do this once for all files)
     if ! systemctl daemon-reload; then
         PrintRed "Failed to reload systemd daemon"
         return 1
+    fi
+
+    # Remove the stale legacy socket unit after reload and reload again so the
+    # service becomes the only unit referencing the socket path.
+    if [[ -f "/etc/systemd/system/kiwipanel-agent.socket" ]]; then
+        rm -f /etc/systemd/system/kiwipanel-agent.socket
+        if ! systemctl daemon-reload; then
+            PrintRed "Failed to reload systemd daemon after removing legacy socket"
+            return 1
+        fi
+        PrintInfo "Removed legacy kiwipanel-agent.socket unit"
     fi
 
     # 3. Enable Services
@@ -997,9 +1123,7 @@ function InstallSystemdService() {
         fi
     fi
 
-     # Enable agent socket and service
-    [[ -f "/etc/systemd/system/kiwipanel-agent.socket" ]] && \
-        systemctl enable kiwipanel-agent.socket >/dev/null
+    # Enable the agent service (the sole socket owner).
     [[ -f "/etc/systemd/system/kiwipanel-agent.service" ]] && \
         systemctl enable kiwipanel-agent.service >/dev/null
 
@@ -1026,12 +1150,9 @@ function InstallSystemdService() {
         fi
     fi
 
-    # Start agent socket first for socket activation
-    if [[ -f "/etc/systemd/system/kiwipanel-agent.socket" ]]; then
-        systemctl start kiwipanel-agent.socket && PrintGreen "✓ Agent socket started"
-    fi
-
-    # Start agent service
+    # Start the agent service. It is the sole owner of /run/kiwipanel/agent.sock
+    # (root:kiwisecure 0660) and creates the listener itself; socket activation
+    # is not used.
     if [[ -f "/etc/systemd/system/kiwipanel-agent.service" ]]; then
         systemctl start kiwipanel-agent.service && PrintGreen "✓ Agent service started"
     fi
@@ -1171,12 +1292,21 @@ OVERRIDE
 
 function VerifyKiwipanel(){
     PrintInfo "==> Verifying ownership"
-    for path in /opt/kiwipanel /etc/kiwipanel /var/log/kiwipanel /var/lib/kiwipanel; do
-    owner=$(stat -c "%U:%G" "$path")
-    if [ "$owner" != "kiwipanel:kiwisecure" ]; then
-        PrintWarn "$path ownership is $owner (expected kiwipanel:kiwisecure)"
-    fi
-    done
+    local path=""
+    local expected_owner=""
+    local actual_owner=""
+    while IFS='|' read -r path expected_owner; do
+        [[ -n "$path" ]] || continue
+        actual_owner=$(stat -c "%U:%G" "$path")
+        if [[ "$actual_owner" != "$expected_owner" ]]; then
+            PrintWarn "$path ownership is $actual_owner (expected $expected_owner)"
+        fi
+    done <<'EOF'
+/opt/kiwipanel|kiwipanel:kiwisecure
+/etc/kiwipanel|root:kiwisecure
+/var/log/kiwipanel|kiwipanel:kiwisecure
+/var/lib/kiwipanel|root:kiwisecure
+EOF
 }
 
 
@@ -1195,12 +1325,11 @@ function SuccessMessage() {
     echo ""
     echo "$(tput setaf 3)   ⚠️  IMPORTANT - Save these credentials now!$(tput sgr0)"
     echo ""
-    echo "   Terminal Token: ${terminal_token}"
-    echo "   (This token is shown ONLY ONCE. Use it at Dashboard > Terminal)"
+    echo "   Rescue Token: ${terminal_token}"
+    echo "   (This token is shown ONLY ONCE. Use it at System > Terminal or System > File Manager to access the root server.)"
     echo "   To rotate: kiwipanel terminal rotate"
     echo ""
-    echo "   Database information:"
-    cat /etc/kiwipanel/secrets.env
+    echo "   Database credentials are stored in root-only file: /etc/kiwipanel/secrets.env"
     echo ""
     echo "$(tput setaf 2)=====================================================================================$(tput sgr0)"
     LogInfo "Installation completed successfully"
@@ -1246,10 +1375,118 @@ function InstallLitespeedServer() {
 
 #================================= Fetching source file from github=================================
 
+readonly FIREWALL_HELPER_PATH="${KIWIPANEL_FIREWALL_HELPER_PATH:-/opt/kiwipanel/scripts/firewall}"
+FIREWALL_HELPER_SHA256_AT_SOURCE=""
+FIREWALL_RUNTIME_FUNCTION_MANIFEST_AT_SOURCE=""
+
+function ComputeFileSHA256() {
+    local checksum_output
+
+    if ! checksum_output="$(sha256sum "$1" 2>/dev/null)"; then
+        return 1
+    fi
+    printf '%s\n' "${checksum_output%% *}"
+}
+
+function ComputeBashFunctionSHA256() {
+    local function_name="$1"
+    local definition
+    local checksum_output
+
+    if ! definition="$(declare -f "$function_name")" || [[ -z "$definition" ]]; then
+        return 1
+    fi
+    if ! checksum_output="$(printf '%s\n' "$definition" | sha256sum)"; then
+        return 1
+    fi
+    printf '%s\n' "${checksum_output%% *}"
+}
+
+function ComputeFirewallRuntimeFunctionManifest() {
+    local function_names
+    local function_name
+    local function_sha256
+
+    if ! function_names="$(sed -nE 's/^function ([A-Za-z_][A-Za-z0-9_]*)\(\)[[:space:]]*\{.*$/\1/p' "$FIREWALL_HELPER_PATH")" \
+        || [[ -z "$function_names" ]]; then
+        return 1
+    fi
+
+    while IFS= read -r function_name; do
+        if ! function_sha256="$(ComputeBashFunctionSHA256 "$function_name")"; then
+            return 1
+        fi
+        printf '%s.sha256=%s\n' "$function_name" "$function_sha256"
+    done <<< "$function_names"
+}
+
+function CaptureFirewallRuntimeProvenance() {
+    local helper_mtime="unknown"
+    local manifest_checksum_output
+    local manifest_sha256
+
+    if ! FIREWALL_HELPER_SHA256_AT_SOURCE="$(ComputeFileSHA256 "$FIREWALL_HELPER_PATH")"; then
+        PrintRed "Failed to hash the sourced firewall helper"
+        return 1
+    fi
+    if ! FIREWALL_RUNTIME_FUNCTION_MANIFEST_AT_SOURCE="$(ComputeFirewallRuntimeFunctionManifest)"; then
+        PrintRed "Failed to hash the sourced firewall helper functions"
+        return 1
+    fi
+    if ! manifest_checksum_output="$(printf '%s\n' "$FIREWALL_RUNTIME_FUNCTION_MANIFEST_AT_SOURCE" | sha256sum)"; then
+        PrintRed "Failed to hash the firewall runtime function manifest"
+        return 1
+    fi
+    manifest_sha256="${manifest_checksum_output%% *}"
+    helper_mtime="$(stat -c '%y' "$FIREWALL_HELPER_PATH" 2>/dev/null || printf '%s' 'unknown')"
+
+    LogInfo "Firewall helper sourced: path=$FIREWALL_HELPER_PATH sha256=$FIREWALL_HELPER_SHA256_AT_SOURCE mtime=$helper_mtime runtime_functions.sha256=$manifest_sha256"
+}
+
+function VerifyFirewallRuntimeProvenance() {
+    local current_helper_sha256
+    local current_function_manifest
+    local manifest_checksum_output
+    local manifest_sha256
+
+    if ! current_helper_sha256="$(ComputeFileSHA256 "$FIREWALL_HELPER_PATH")"; then
+        PrintRed "Failed to hash the firewall helper before execution"
+        return 1
+    fi
+    if [[ "$current_helper_sha256" != "$FIREWALL_HELPER_SHA256_AT_SOURCE" ]]; then
+        PrintRed "Firewall helper changed after it was sourced; refusing to continue"
+        return 1
+    fi
+
+    if ! current_function_manifest="$(ComputeFirewallRuntimeFunctionManifest)"; then
+        PrintRed "Failed to verify firewall helper runtime functions"
+        return 1
+    fi
+    if ! manifest_checksum_output="$(printf '%s\n' "$current_function_manifest" | sha256sum)"; then
+        PrintRed "Failed to hash the current firewall runtime function manifest"
+        return 1
+    fi
+    manifest_sha256="${manifest_checksum_output%% *}"
+    LogInfo "Firewall helper before execution: file.sha256=$current_helper_sha256 runtime_functions.sha256=$manifest_sha256"
+
+    if [[ "$current_function_manifest" != "$FIREWALL_RUNTIME_FUNCTION_MANIFEST_AT_SOURCE" ]]; then
+        LogError "Expected firewall runtime functions: $(printf '%s' "$FIREWALL_RUNTIME_FUNCTION_MANIFEST_AT_SOURCE" | tr '\n' ' ')"
+        LogError "Current firewall runtime functions: $(printf '%s' "$current_function_manifest" | tr '\n' ' ')"
+        PrintRed "Firewall runtime function changed after the helper was sourced; refusing to continue"
+        return 1
+    fi
+}
+
 source "/opt/kiwipanel/scripts/loginbanner"
 source "/opt/kiwipanel/scripts/welcome"
 source "/opt/kiwipanel/scripts/mariadb"
-source "/opt/kiwipanel/scripts/firewall"
+if ! source "$FIREWALL_HELPER_PATH"; then
+    PrintRed "Failed to source firewall helper: $FIREWALL_HELPER_PATH"
+    exit 1
+fi
+if ! CaptureFirewallRuntimeProvenance; then
+    exit 1
+fi
 source "/opt/kiwipanel/scripts/kiwipanelssl"
 source "/opt/kiwipanel/scripts/base"
 source "/opt/kiwipanel/scripts/swap"
@@ -1323,59 +1560,27 @@ verify_swap() {
 
 # Step 7: Firewall
 step_firewall() {
-    InstallAndConfigureFirewall
-
-    # Install fail2ban (intrusion prevention)
-    PrintInfo "==> Installing fail2ban..."
-    if command -v apt-get >/dev/null 2>&1; then
-        apt-get install -y fail2ban
-    elif command -v dnf >/dev/null 2>&1; then
-        dnf install -y fail2ban
-    elif command -v yum >/dev/null 2>&1; then
-        yum install -y fail2ban
-    else
-        PrintWarn "Could not install fail2ban: unsupported package manager"
-        return 0
+    if ! VerifyFirewallRuntimeProvenance; then
+        return 1
     fi
-    systemctl enable --now fail2ban
-
-    # Configure default sshd jail for KiwiPanel
-    PrintInfo "==> Configuring fail2ban sshd jail..."
-    mkdir -p /etc/fail2ban/jail.d
-    cat > /etc/fail2ban/jail.d/kiwipanel.local <<'EOF'
-[sshd]
-enabled = true
-port = ssh
-backend = systemd
-maxretry = 5
-bantime = 3600
-findtime = 600
-
-[recidive]
-enabled = true
-bantime = 604800
-findtime = 86400
-maxretry = 5
-EOF
-    fail2ban-client reload
-    PrintGreen "✓ fail2ban installed, configured, and started"
+    if ! InstallAndConfigureFirewall; then
+        return 1
+    fi
+    if ! InstallAndConfigureFail2Ban; then
+        return 1
+    fi
 }
 
 verify_firewall() {
-    if command -v ufw >/dev/null 2>&1; then
-        ufw status | grep -q "Status: active" || return 1
-        ufw status | grep -q "8443" || return 1
-    elif command -v firewall-cmd >/dev/null 2>&1; then
-        firewall-cmd --state &>/dev/null || return 1
-        firewall-cmd --list-ports 2>/dev/null | grep -q "8443" || \
-            firewall-cmd --list-all 2>/dev/null | grep -q "8443" || return 1
-    else
+    if ! VerifyFirewallRuntimeProvenance; then
         return 1
     fi
-    # Verify fail2ban is installed and running
-    ensure_package_installed "fail2ban" || return 1
-    ensure_service_active "fail2ban" || return 1
-    return 0
+    if ! VerifyFirewall; then
+        return 1
+    fi
+    if ! VerifyFail2Ban; then
+        return 1
+    fi
 }
 
 # Step 8: SSL
@@ -1395,14 +1600,19 @@ verify_ssl() {
 step_mariadb() { InstallAndConfigureMariaDB; }
 
 verify_mariadb() {
-    # Package installed?
-    command -v mariadbd >/dev/null 2>&1 || command -v mysqld >/dev/null 2>&1 || return 1
-    # Service running?
-    ensure_service_active "mariadb" || ensure_service_active "mysql" || return 1
-    # Secrets file exists with DB_PASS?
-    [[ -f /etc/kiwipanel/secrets.env ]] || return 1
-    grep -q "^DB_PASS=" /etc/kiwipanel/secrets.env 2>/dev/null || return 1
-    return 0
+    # The sourced MariaDB helper owns strict parsing of provenance and secrets.
+    DetectOSFamily || return 1
+    ClassifyMariaDBInstallationState || return 1
+    [[ "$MARIADB_INSTALL_STATE" == "managed_complete" ]] || return 1
+    LoadMariaDBPlanFromTransaction
+    VerifyInstalledMariaDBPackagePlan || return 1
+    VerifyMariaDBExecutables || return 1
+    ValidateMariaDBCatalogOnDisk || return 1
+    DetectMariaDBServiceUnit || return 1
+    systemctl is-active --quiet "$MARIADB_SERVICE" || return 1
+    DetectMariaDBCommands || return 1
+    CheckMariaDBHealth || return 1
+    [[ "$MARIADB_TRANSACTION_PHASE" == "complete" ]]
 }
 
 # Step 10: Config
@@ -1478,7 +1688,7 @@ verify_finalize() {
 function main() {
     Welcome
     CheckConditionBeforeInstall
-    mkdir -p "$INSTALL_STATE_DIR"
+    EnsureInstallStateDirectory
 
     run_step "base_system"  step_base_system  verify_base_system
     run_step "swap"         step_swap         verify_swap
