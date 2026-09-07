@@ -553,7 +553,8 @@ function ShowVersion() {
 
     mkdir -p "$META_DIR"
 
-    # Fetch releases catalog with error handling
+    # Always fetch fresh releases catalog (don't rely on cached file during partial installs)
+    # This ensures resumed installations get the latest version, not stale cached data
     if ! RELEASES_JSON=$(curl -fsSL --retry 3 --retry-delay 2 "$RELEASES_URL" 2>/dev/null); then
         PrintRed "Failed to fetch releases.json from GitHub"
         exit 1

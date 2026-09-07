@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.9 (2026-09-07)
+
+- fixed: mariadb
+- Fixed: always get latest release version
+- Release 0.8.8
 ## v0.8.8 (2026-09-07)
 
 - fixed: installing mariadb on debian 13
