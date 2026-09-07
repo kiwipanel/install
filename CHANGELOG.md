@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.8.7 (2026-09-07)
+
+- fixed: missing mariadb-platform
+- feat: installing mariadb using golang
+- fix(install): isolate installer state from service-account ownership
+- release 0.8.6
 ## v0.8.6 (2026-09-04)
 
 - fixed: when running release CI does not trigger install repo
