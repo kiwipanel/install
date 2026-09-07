@@ -7,28 +7,28 @@
   },
   "releases": [
     {
-      "version": "0.8.7",
+      "version": "0.8.8",
       "channel": "stable",
       "release_date": "2026-09-07",
       "os": "linux",
       "arch": "amd64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.7/kiwipanel-linux-amd64",
-      "sha256": "60c0c3f0416b2f17d96d41208dbdfd93d271f2a57bffae1586df1f7657c7fceb",
-      "agent_sha256": "036c37a4686839efb90eb525cd80ccd24bfea7acdba8e9ab71f2c1184515add7",
-      "scaffold_sha256": "6503b69617a9155838f943e842f4127d9d57d22560886deeb1c6cc86b904a974",
-      "notes": "Release v0.8.7"
+      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.8/kiwipanel-linux-amd64",
+      "sha256": "997dc0ec23f117b9eb0d3d9ce85efd1d7a214277e1d17f2672726497f970abd3",
+      "agent_sha256": "3f12b7cad388e76e31aee01469be2cc365e68f4bc79cbbf9c61d9e3769d83e76",
+      "scaffold_sha256": "de53a45a097cc5520920506464432c65662335f893765a63ae54b73c9b49f81a",
+      "notes": "Release v0.8.8"
     },
     {
-      "version": "0.8.7",
+      "version": "0.8.8",
       "channel": "stable",
       "release_date": "2026-09-07",
       "os": "linux",
       "arch": "arm64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.7/kiwipanel-linux-arm64",
-      "sha256": "6de348932cd756c1aa5733d940a80dbc53e6de4b4e974daf462f9b6902bf79fb",
-      "agent_sha256": "d5535bc4004ef866afd55c450cd7c643464c087224ee52754bd57f084ae87572",
-      "scaffold_sha256": "6503b69617a9155838f943e842f4127d9d57d22560886deeb1c6cc86b904a974",
-      "notes": "Release v0.8.7"
+      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.8/kiwipanel-linux-arm64",
+      "sha256": "46f9c72f6c9eff4addbcc3c405d137ab3e0c75ae13bb5e4e8fef4eae2fa014d3",
+      "agent_sha256": "e74ce787861890b692a23e153a0ba4f8ee85ee501ca1f959a68a765bcdf01eef",
+      "scaffold_sha256": "de53a45a097cc5520920506464432c65662335f893765a63ae54b73c9b49f81a",
+      "notes": "Release v0.8.8 for ARM64 architecture"
     }
   ]
 }
