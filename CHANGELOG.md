@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.8 (2026-09-07)
+
+- fixed: installing mariadb on debian 13
+- fixed: wrong checksum of scafolder
+- release 8.0.7
 ## v0.8.7 (2026-09-07)
 
 - fixed: missing mariadb-platform

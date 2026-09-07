@@ -392,6 +392,7 @@ function VerifySHA256Checksum() {
         PrintRed "$label checksum mismatch!"
         PrintRed "  Expected: $expected"
         PrintRed "  Actual:   $actual"
+        LogError "$label checksum mismatch: file=$file expected=$expected actual=$actual"
         return 1
     fi
 
@@ -402,6 +403,7 @@ function DownloadPackage() {
     # 1. Download architecture-independent scaffold (scripts, config, systemd, templates)
     PrintInfo "==> Downloading KiwiPanel scaffold"
     PrintInfo "    URL: $KIWIPANEL_SCAFFOLD_URL"
+    LogInfo "Scaffold download: version=${KIWIPANEL_VERSION:-unknown} arch=${KIWIPANEL_ARCH:-unknown} url=$KIWIPANEL_SCAFFOLD_URL expected_sha256=${KIWIPANEL_SCAFFOLD_SHA256:-Not provided}"
     if ! curl -L --fail --retry 3 --retry-delay 2 "$KIWIPANEL_SCAFFOLD_URL" -o "$TMP_ZIP"; then
         PrintRed "Failed to download KiwiPanel scaffold"
         exit 1
@@ -541,7 +543,10 @@ function ShowVersion() {
     VERSION_FILE="$META_DIR/version"
     RELEASES_FILE="$META_DIR/releases.json"
 
-    RELEASES_URL="https://raw.githubusercontent.com/kiwipanel/install/refs/heads/main/releases.json"
+    # Raw GitHub responses may be served from a short-lived CDN cache after
+    # releases.json is promoted. Cache-bust the catalog so its checksums are
+    # selected from the same current response window as the release assets.
+    RELEASES_URL="https://raw.githubusercontent.com/kiwipanel/install/refs/heads/main/releases.json?kiwipanel_catalog=$(date +%s)-$$"
 
     # Default to stable channel (can be overridden by environment variable)
     CHANNEL="${KIWIPANEL_CHANNEL:-stable}"
@@ -549,10 +554,14 @@ function ShowVersion() {
     mkdir -p "$META_DIR"
 
     # Fetch releases catalog with error handling
-    if ! RELEASES_JSON=$(curl -fsSL "$RELEASES_URL" 2>/dev/null); then
+    if ! RELEASES_JSON=$(curl -fsSL --retry 3 --retry-delay 2 "$RELEASES_URL" 2>/dev/null); then
         PrintRed "Failed to fetch releases.json from GitHub"
         exit 1
     fi
+
+    local catalog_sha256
+    catalog_sha256=$(printf '%s' "$RELEASES_JSON" | sha256sum | awk '{print $1}')
+    LogInfo "Release catalog fetched: url=$RELEASES_URL sha256=$catalog_sha256 bytes=${#RELEASES_JSON}"
 
     # Validate JSON is not empty
     if [[ -z "$RELEASES_JSON" || "$RELEASES_JSON" == "null" ]]; then
@@ -627,6 +636,7 @@ function ShowVersion() {
     echo "Agent SHA256    : $AGENT_SHA256"
     echo "Scaffold SHA256 : $SCAFFOLD_SHA256"
     echo "Notes           : $NOTES"
+    LogInfo "Release selected: channel=$CHANNEL version=$VERSION date=$RELEASE_DATE arch=$ARCH binary_url=$URL scaffold_url=${base_url:-pending}/kiwipanel-scaffold.zip scaffold_sha256=$SCAFFOLD_SHA256 catalog_sha256=$catalog_sha256"
 
     # Export for installer/update steps
     export KIWIPANEL_VERSION="$VERSION"
