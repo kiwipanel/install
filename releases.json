@@ -13,8 +13,8 @@
       "os": "linux",
       "arch": "amd64",
       "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.7/kiwipanel-linux-amd64",
-      "sha256": "e38a81dc4f22dc8800a08e91aa75cfab56a9fcb150fd71c7083165bfa02d6eab",
-      "agent_sha256": "dd4d81e3dda7dda557ab12b8806034a8c57de6bdb12ed6e2fcb8a4e42528b7e2",
+      "sha256": "60c0c3f0416b2f17d96d41208dbdfd93d271f2a57bffae1586df1f7657c7fceb",
+      "agent_sha256": "036c37a4686839efb90eb525cd80ccd24bfea7acdba8e9ab71f2c1184515add7",
       "scaffold_sha256": "6503b69617a9155838f943e842f4127d9d57d22560886deeb1c6cc86b904a974",
       "notes": "Release v0.8.7"
     },
@@ -25,8 +25,8 @@
       "os": "linux",
       "arch": "arm64",
       "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.7/kiwipanel-linux-arm64",
-      "sha256": "a5b698040965227c08833bdd88fd7f2b1758d511d4c3a42100c13d174a2404e0",
-      "agent_sha256": "ad4f56f920cc841a10fae59025892aaa3a3e4d42f9c14f08a95a7ff17e10bcf8",
+      "sha256": "6de348932cd756c1aa5733d940a80dbc53e6de4b4e974daf462f9b6902bf79fb",
+      "agent_sha256": "d5535bc4004ef866afd55c450cd7c643464c087224ee52754bd57f084ae87572",
       "scaffold_sha256": "6503b69617a9155838f943e842f4127d9d57d22560886deeb1c6cc86b904a974",
       "notes": "Release v0.8.7"
     }
