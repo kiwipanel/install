@@ -2,33 +2,33 @@
   "schema": 2,
   "channels": {
     "stable": {
-      "latest": "0.8.8"
+      "latest": "0.8.9"
     }
   },
   "releases": [
     {
-      "version": "0.8.8",
+      "version": "0.8.9",
       "channel": "stable",
       "release_date": "2026-09-07",
       "os": "linux",
       "arch": "amd64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.8/kiwipanel-linux-amd64",
-      "sha256": "997dc0ec23f117b9eb0d3d9ce85efd1d7a214277e1d17f2672726497f970abd3",
-      "agent_sha256": "3f12b7cad388e76e31aee01469be2cc365e68f4bc79cbbf9c61d9e3769d83e76",
-      "scaffold_sha256": "de53a45a097cc5520920506464432c65662335f893765a63ae54b73c9b49f81a",
-      "notes": "Release v0.8.8"
+      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.9/kiwipanel-linux-amd64",
+      "sha256": "3372a6b32084ae9c9272dca2188e4c114604650e38c234a3cefc848afbcff03b",
+      "agent_sha256": "1ae84cc46c961d873445538bfdcf75c9a639edd6b9f42a71991bad4ff4f6c279",
+      "scaffold_sha256": "5a6f99ca1677f29eac90aba4b3f41d68d2e1136ef844c99aff5e2e11eae53776",
+      "notes": "Release v0.8.9"
     },
     {
-      "version": "0.8.8",
+      "version": "0.8.9",
       "channel": "stable",
       "release_date": "2026-09-07",
       "os": "linux",
       "arch": "arm64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.8/kiwipanel-linux-arm64",
-      "sha256": "46f9c72f6c9eff4addbcc3c405d137ab3e0c75ae13bb5e4e8fef4eae2fa014d3",
-      "agent_sha256": "e74ce787861890b692a23e153a0ba4f8ee85ee501ca1f959a68a765bcdf01eef",
-      "scaffold_sha256": "de53a45a097cc5520920506464432c65662335f893765a63ae54b73c9b49f81a",
-      "notes": "Release v0.8.8 for ARM64 architecture"
+      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.9/kiwipanel-linux-arm64",
+      "sha256": "00b403fb53b0e92afbcda039528467c7f1d6dc7bbdb6daebcc4a9825e0260737",
+      "agent_sha256": "b0324f37be53b7ccab5cc009d66ce2dca9be864c5afadad6cd8f2acd6042256d",
+      "scaffold_sha256": "5a6f99ca1677f29eac90aba4b3f41d68d2e1136ef844c99aff5e2e11eae53776",
+      "notes": "Release v0.8.9 for ARM64 architecture"
     }
   ]
 }
