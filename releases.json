@@ -13,8 +13,8 @@
       "os": "linux",
       "arch": "amd64",
       "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.9/kiwipanel-linux-amd64",
-      "sha256": "3372a6b32084ae9c9272dca2188e4c114604650e38c234a3cefc848afbcff03b",
-      "agent_sha256": "1ae84cc46c961d873445538bfdcf75c9a639edd6b9f42a71991bad4ff4f6c279",
+      "sha256": "508a98de06bfdafa352d810f241e1115858cb59732a8a7ebda610fe3517f7f1e",
+      "agent_sha256": "sha256:4e3d2202199919caef24c77b13a904c3e67a65417c8f1c6a2bf2798f3f9e0613",
       "scaffold_sha256": "5a6f99ca1677f29eac90aba4b3f41d68d2e1136ef844c99aff5e2e11eae53776",
       "notes": "Release v0.8.9"
     },
