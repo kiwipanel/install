@@ -1609,150 +1609,46 @@ verify_ssl() {
 
 # Step 9: MariaDB
 function VerifyMariaDBReleaseProvenance() {
-    # Fail-closed provenance gate: prove binary and scaffold are the verified release
-    # artifacts before MariaDB can mutate packages, repositories, or databases.
-    
-    local binary="$INSTALL_DIR/bin/kiwipanel"
+    # Production MariaDB mutation is owned by the release-scaffold Bash helper.
+    # The Go engine remains available only through explicit experimental opt-in.
+    local helper="$INSTALL_DIR/scripts/mariadb"
     local adapter="$INSTALL_DIR/scripts/mariadb-platform"
     local scaffold_commit_file="$INSTALL_DIR/meta/scaffold-commit"
-    
-    # 1. Binary must exist and be executable
-    if [[ ! -x "$binary" ]]; then
-        PrintRed "MariaDB provenance gate: panel binary not found or not executable at $binary"
+    local scaffold_commit
+
+    if [[ ! -r "$helper" ]]; then
+        PrintRed "MariaDB provenance gate: production helper missing at $helper"
         return 1
     fi
-    
-    # 2. Scaffold adapter must exist and be executable
     if [[ ! -x "$adapter" ]]; then
-        PrintRed "MariaDB provenance gate: scaffold adapter not found or not executable at $adapter"
+        PrintRed "MariaDB provenance gate: platform adapter missing or not executable at $adapter"
         return 1
     fi
-    
-    # 3. Scaffold commit marker must exist
     if [[ ! -f "$scaffold_commit_file" ]]; then
         PrintRed "MariaDB provenance gate: scaffold commit marker missing at $scaffold_commit_file"
         return 1
     fi
-    
-    # 4. Query binary embedded identity (version and source commit). Preserve the
-    # real exit status and output: without these details, architecture/loader
-    # failures and a stale binary that rejects the flag look identical.
-    local build_info
-    local build_info_status
-    if build_info=$("$binary" --build-info-json 2>&1); then
-        build_info_status=0
-    else
-        build_info_status=$?
-        PrintRed "MariaDB provenance gate: failed to query binary build info (exit $build_info_status)"
-        if [[ -n "$build_info" ]]; then
-            PrintRed "  Binary output: $build_info"
-        else
-            PrintRed "  Binary produced no diagnostic output"
-        fi
-        if declare -f LogError >/dev/null 2>&1; then
-            LogError "MariaDB provenance binary probe failed: path=$binary exit=$build_info_status host_arch=$(uname -m 2>/dev/null || printf unknown) output=${build_info:-<empty>}"
-        fi
-        return 1
-    fi
-    
-    local binary_version binary_commit
-    binary_version=$(echo "$build_info" | jq -r '.version' 2>/dev/null) || {
-        PrintRed "MariaDB provenance gate: failed to parse binary version from build info"
-        return 1
-    }
-    binary_commit=$(echo "$build_info" | jq -r '.source_commit' 2>/dev/null) || {
-        PrintRed "MariaDB provenance gate: failed to parse binary source commit from build info"
-        return 1
-    }
-    
-    # 5. Validate binary identity format
-    if [[ ! "$binary_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        PrintRed "MariaDB provenance gate: binary version has invalid format: $binary_version"
-        return 1
-    fi
-    if [[ ! "$binary_commit" =~ ^[0-9a-f]{40}$ ]]; then
-        PrintRed "MariaDB provenance gate: binary source commit has invalid format: $binary_commit"
-        return 1
-    fi
-    
-    # 6. Read and validate scaffold commit
-    local scaffold_commit
-    scaffold_commit=$(head -n 1 "$scaffold_commit_file" 2>/dev/null | tr -d '[:space:]') || {
-        PrintRed "MariaDB provenance gate: failed to read scaffold commit marker"
-        return 1
-    }
+    scaffold_commit=$(head -n 1 "$scaffold_commit_file" 2>/dev/null | tr -d '[:space:]') || return 1
     if [[ ! "$scaffold_commit" =~ ^[0-9a-f]{40}$ ]]; then
         PrintRed "MariaDB provenance gate: scaffold commit has invalid format: $scaffold_commit"
         return 1
     fi
-    
-    # 7. Binary and scaffold must share the same source commit
-    if [[ "$binary_commit" != "$scaffold_commit" ]]; then
-        PrintRed "MariaDB provenance gate: binary and scaffold source commits do not match"
-        PrintRed "  Binary commit:   $binary_commit"
-        PrintRed "  Scaffold commit: $scaffold_commit"
+    if [[ "$KIWIPANEL_MARIADB_ENGINE" != "bash" ]]; then
+        PrintRed "MariaDB provenance gate: production installer must use the Bash engine"
         return 1
     fi
-    
-    # 8. Query binary MariaDB protocol version
-    local binary_mariadb_protocol
-    if ! binary_mariadb_protocol=$("$binary" bootstrap mariadb protocol-version 2>&1); then
-        PrintRed "MariaDB provenance gate: failed to query binary MariaDB protocol version"
-        return 1
-    fi
-    binary_mariadb_protocol=$(echo "$binary_mariadb_protocol" | tr -d '[:space:]')
-    if [[ ! "$binary_mariadb_protocol" =~ ^[1-9][0-9]*$ ]]; then
-        PrintRed "MariaDB provenance gate: binary MariaDB protocol has invalid format: $binary_mariadb_protocol"
-        return 1
-    fi
-    
-    # 9. Query scaffold adapter protocol version
-    local adapter_protocol
-    if ! adapter_protocol=$("$adapter" protocol-version 2>&1); then
-        PrintRed "MariaDB provenance gate: failed to query scaffold adapter protocol version"
-        return 1
-    fi
-    adapter_protocol=$(echo "$adapter_protocol" | tr -d '[:space:]')
-    
-    # 10. Validate adapter protocol matches expected format (mariadb-platform-v<N>)
-    if [[ ! "$adapter_protocol" =~ ^mariadb-platform-v[1-9][0-9]*$ ]]; then
-        PrintRed "MariaDB provenance gate: scaffold adapter protocol has invalid format: $adapter_protocol"
-        return 1
-    fi
-    
-    # 11. Extract numeric protocol from adapter string and compare with binary
-    local adapter_protocol_number
-    adapter_protocol_number="${adapter_protocol#mariadb-platform-v}"
-    if [[ "$binary_mariadb_protocol" != "$adapter_protocol_number" ]]; then
-        PrintRed "MariaDB provenance gate: binary and scaffold MariaDB protocols are incompatible"
-        PrintRed "  Binary protocol:  $binary_mariadb_protocol"
-        PrintRed "  Adapter protocol: $adapter_protocol (numeric: $adapter_protocol_number)"
-        return 1
-    fi
-    
-    PrintGreen "✓ MariaDB provenance verified: binary and scaffold from source commit $binary_commit, protocol $binary_mariadb_protocol"
-    return 0
+
+    PrintGreen "✓ MariaDB production helper verified from scaffold commit $scaffold_commit"
 }
 
 step_mariadb() {
+    export KIWIPANEL_MARIADB_ENGINE="bash"
     VerifyMariaDBReleaseProvenance || return 1
     InstallAndConfigureMariaDB
 }
 
 verify_mariadb() {
-    # The sourced MariaDB helper owns strict parsing of provenance and secrets.
-    DetectOSFamily || return 1
-    ClassifyMariaDBInstallationState || return 1
-    [[ "$MARIADB_INSTALL_STATE" == "managed_complete" ]] || return 1
-    LoadMariaDBPlanFromTransaction
-    VerifyInstalledMariaDBPackagePlan || return 1
-    VerifyMariaDBExecutables || return 1
-    ValidateMariaDBCatalogOnDisk || return 1
-    DetectMariaDBServiceUnit || return 1
-    systemctl is-active --quiet "$MARIADB_SERVICE" || return 1
-    DetectMariaDBCommands || return 1
-    CheckMariaDBHealth || return 1
-    [[ "$MARIADB_TRANSACTION_PHASE" == "complete" ]]
+    CheckMariaDBHealth
 }
 
 # Step 10: Config

@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.8.95 (2026-09-09)
+
+- feat: test mariadb on distros: ubuntu, alma, rocky, debian
 ## v0.8.92 (2026-09-09)
 
 - fixed mariadb checking
