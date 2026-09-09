@@ -7,28 +7,28 @@
   },
   "releases": [
     {
-      "version": "0.8.9",
+      "version": "0.8.91",
       "channel": "stable",
-      "release_date": "2026-09-07",
+      "release_date": "2026-09-09",
       "os": "linux",
       "arch": "amd64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.9/kiwipanel-linux-amd64",
-      "sha256": "7a1b6f1d64ceb3f7b075c61fa748bc2aa3ae806f43eb4e9d64e3436e10a83b2c",
-      "agent_sha256": "3c7c7f35e77354eb6521a9577d07f1581a7f32b47a331fe2654ce436954a8d4d",
-      "scaffold_sha256": "5a6f99ca1677f29eac90aba4b3f41d68d2e1136ef844c99aff5e2e11eae53776",
-      "notes": "Release v0.8.9"
+      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.91/kiwipanel-linux-amd64",
+      "sha256": "b931f76bfe0b913411187e35c25bb375369e907e1cef860bfaad85077b4df6c9",
+      "agent_sha256": "9e03d3de965071e7e929ee0a31671a1e5a069d63f1b265b2fd12ca01b05235f7",
+      "scaffold_sha256": "fd34a8689cb5a02378b6fd228a0b4bb599a1b6b64d61c7e3abdb4cb7f93b995a",
+      "notes": "Release v0.8.91"
     },
     {
-      "version": "0.8.9",
+      "version": "0.8.91",
       "channel": "stable",
-      "release_date": "2026-09-07",
+      "release_date": "2026-09-09",
       "os": "linux",
       "arch": "arm64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.9/kiwipanel-linux-arm64",
-      "sha256": "00b403fb53b0e92afbcda039528467c7f1d6dc7bbdb6daebcc4a9825e0260737",
-      "agent_sha256": "b0324f37be53b7ccab5cc009d66ce2dca9be864c5afadad6cd8f2acd6042256d",
-      "scaffold_sha256": "5a6f99ca1677f29eac90aba4b3f41d68d2e1136ef844c99aff5e2e11eae53776",
-      "notes": "Release v0.8.9 for ARM64 architecture"
+      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.91/kiwipanel-linux-arm64",
+      "sha256": "1cf6878ff6f626da4eda3eba0002b21cfdf4106aa2f3c28f67a47adfca77b1fa",
+      "agent_sha256": "3861908921debd02a5f93edd7f237cc6106f416eb84274666cfb98065eb77093",
+      "scaffold_sha256": "fd34a8689cb5a02378b6fd228a0b4bb599a1b6b64d61c7e3abdb4cb7f93b995a",
+      "notes": "Release v0.8.91 for ARM64 architecture"
     }
   ]
 }
