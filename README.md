@@ -7,9 +7,9 @@
 [![Tests](https://github.com/kiwipanel/kiwipanel/actions/workflows/tests.yml/badge.svg)](https://github.com/kiwipanel/kiwipanel/actions/workflows/tests.yml)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/b1233420d6264734b6c79190bf03c354)](https://app.codacy.com/gh/kiwipanel/kiwipanel/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 
-<p align="center">
+<!--<p align="center">
   <img src="screenshot.png" alt="KiwiPanel Dashboard" width="600">
-</p>
+</p>-->
 
 ## KiwiPanel
 
