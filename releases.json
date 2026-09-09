@@ -17,7 +17,7 @@
       "agent_sha256": "e109f278b5161ccc99b9a6e07bf8d0e3544a222c120e764c5a0ee3106c547b64",
       "scaffold_sha256": "e81769b6c50d1a342d64dcdfd4284c1f0ae541fe791f12c4a88a9e2cfa73de56",
       "notes": "Release v0.8.95"
-    },s
+    },
     {
       "version": "0.8.95",
       "channel": "stable",
