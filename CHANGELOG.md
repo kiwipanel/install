@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.8.92 (2026-09-09)
+
+- fixed mariadb checking
 ## v0.8.91 (2026-09-09)
 
 - fixed mariadb
