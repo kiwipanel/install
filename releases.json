@@ -2,7 +2,7 @@
   "schema": 2,
   "channels": {
     "stable": {
-      "latest": "0.8.9"
+      "latest": "0.8.91"
     }
   },
   "releases": [
