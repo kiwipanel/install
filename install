@@ -1634,10 +1634,24 @@ function VerifyMariaDBReleaseProvenance() {
         return 1
     fi
     
-    # 4. Query binary embedded identity (version and source commit)
+    # 4. Query binary embedded identity (version and source commit). Preserve the
+    # real exit status and output: without these details, architecture/loader
+    # failures and a stale binary that rejects the flag look identical.
     local build_info
-    if ! build_info=$("$binary" --build-info-json 2>&1); then
-        PrintRed "MariaDB provenance gate: failed to query binary build info"
+    local build_info_status
+    if build_info=$("$binary" --build-info-json 2>&1); then
+        build_info_status=0
+    else
+        build_info_status=$?
+        PrintRed "MariaDB provenance gate: failed to query binary build info (exit $build_info_status)"
+        if [[ -n "$build_info" ]]; then
+            PrintRed "  Binary output: $build_info"
+        else
+            PrintRed "  Binary produced no diagnostic output"
+        fi
+        if declare -f LogError >/dev/null 2>&1; then
+            LogError "MariaDB provenance binary probe failed: path=$binary exit=$build_info_status host_arch=$(uname -m 2>/dev/null || printf unknown) output=${build_info:-<empty>}"
+        fi
         return 1
     fi
     
