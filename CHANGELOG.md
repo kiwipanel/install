@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.8.96 (2026-09-10)
+
+- feat: remove golang when installing mariadb
 ## v0.8.95 (2026-09-09)
 
 - feat: test mariadb on distros: ubuntu, alma, rocky, debian

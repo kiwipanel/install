@@ -1609,8 +1609,7 @@ verify_ssl() {
 
 # Step 9: MariaDB
 function VerifyMariaDBReleaseProvenance() {
-    # Production MariaDB mutation is owned by the release-scaffold Bash helper.
-    # The Go engine remains available only through explicit experimental opt-in.
+    # Production MariaDB mutation is owned exclusively by the release-scaffold Bash helper.
     local helper="$INSTALL_DIR/scripts/mariadb"
     local adapter="$INSTALL_DIR/scripts/mariadb-platform"
     local scaffold_commit_file="$INSTALL_DIR/meta/scaffold-commit"
@@ -1633,16 +1632,10 @@ function VerifyMariaDBReleaseProvenance() {
         PrintRed "MariaDB provenance gate: scaffold commit has invalid format: $scaffold_commit"
         return 1
     fi
-    if [[ "$KIWIPANEL_MARIADB_ENGINE" != "bash" ]]; then
-        PrintRed "MariaDB provenance gate: production installer must use the Bash engine"
-        return 1
-    fi
-
     PrintGreen "✓ MariaDB production helper verified from scaffold commit $scaffold_commit"
 }
 
 step_mariadb() {
-    export KIWIPANEL_MARIADB_ENGINE="bash"
     VerifyMariaDBReleaseProvenance || return 1
     InstallAndConfigureMariaDB
 }
