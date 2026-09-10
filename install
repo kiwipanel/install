@@ -25,14 +25,8 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-clear
-date
 export LANG="${LANG:-en_US.UTF-8}"
 export LC_ALL="${LC_ALL:-en_US.UTF-8}"
-
-if command -v locale-gen >/dev/null 2>&1; then
-       locale-gen en_US.UTF-8 2>/dev/null || true
-fi
 
 # Stop on error
 set -euo pipefail
@@ -52,6 +46,9 @@ function log() {
 
     ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
+    # Existing-install classification deliberately runs before installer-owned
+    # directories are created. Logging becomes durable only after that gate.
+    [[ -d "$LOG_DIR" ]] || return 0
     echo "$ts [$level] $message" >> "$LOG_FILE"
 }
 
@@ -101,18 +98,26 @@ PrintRed() {
 DEBUG=${DEBUG:-0}
 AUTO_UPGRADE=${AUTO_UPGRADE:-0}
 
-mkdir -p "$LOG_DIR" || {
-    echo "Failed to create log directory: $LOG_DIR"
-    exit 1
-}
+function InitializeInstallerRuntime() {
+    clear
+    date
 
-touch "$LOG_FILE" || {
-    echo "Failed to create log file: $LOG_FILE"
-    exit 1
-}
+    if command -v locale-gen >/dev/null 2>&1; then
+        locale-gen en_US.UTF-8 2>/dev/null || true
+    fi
 
-chmod 750 "$KIWIPANEL_DIR" "$LOG_DIR" # rwx for owner+group only; no access for others (security requirement)
-chmod 640 "$LOG_FILE"
+    mkdir -p "$LOG_DIR" || {
+        echo "Failed to create log directory: $LOG_DIR"
+        return 1
+    }
+    touch "$LOG_FILE" || {
+        echo "Failed to create log file: $LOG_FILE"
+        return 1
+    }
+
+    chmod 750 "$KIWIPANEL_DIR" "$LOG_DIR" # rwx for owner+group only; no access for others (security requirement)
+    chmod 640 "$LOG_FILE"
+}
 
 # ==============================================================================
 # Installer Singleton Lock
@@ -155,7 +160,9 @@ fi
 # The existing install functions are called unchanged — this is a thin wrapper.
 # ==============================================================================
 
-INSTALL_STATE_DIR="/var/lib/kiwipanel/install.d"
+INSTALL_STATE_DIR="${KIWIPANEL_INSTALL_STATE_DIR:-/var/lib/kiwipanel/install.d}"
+INSTALL_ROOT="${KIWIPANEL_INSTALL_ROOT:-/opt/kiwipanel}"
+PANEL_SERVICE_UNIT="${KIWIPANEL_SERVICE_UNIT:-/etc/systemd/system/kiwipanel.service}"
 STEP_TOTAL=9
 STEP_CURRENT=0
 VERIFY_ONLY=0
@@ -274,27 +281,136 @@ ensure_file_exists() {
 }
 
 
-function CheckFreshInstall() {
+function IsTrustedInstallStateDirectory() {
     local state_dir="$INSTALL_STATE_DIR"
+    local identity=""
 
-    # Case 1: Fully completed install (finalize.done exists)
-    if [[ -f "$state_dir/finalize.done" ]]; then
-        PrintRed "KiwiPanel is already fully installed."
-        PrintRed "To force re-install, remove the state directory:"
-        PrintRed "  rm -rf $state_dir && sudo bash install"
-        exit 1
+    [[ -d "$state_dir" && ! -L "$state_dir" ]] || return 1
+    identity="$(stat -c '%u|%g|%a' -- "$state_dir" 2>/dev/null)" || return 1
+    [[ "$identity" == "0|0|700" ]]
+}
+
+function HasDurableKiwipanelEvidence() {
+    local evidence
+    for evidence in \
+        "$INSTALL_ROOT/meta/.installed" \
+        "$INSTALL_ROOT/bin/kiwipanel" \
+        "$INSTALL_ROOT/config/kiwipanel.toml" \
+        "$PANEL_SERVICE_UNIT"; do
+        [[ -e "$evidence" || -L "$evidence" ]] && return 0
+    done
+
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet kiwipanel.service 2>/dev/null; then
+        return 0
     fi
+    return 1
+}
 
-    # Case 2: Partial install (state dir exists, some steps done)
-    if [[ -d "$state_dir" ]] && compgen -G "$state_dir/*.done" >/dev/null 2>&1; then
-        local completed
-        completed=$(find "$state_dir" -name '*.done' | wc -l)
-        PrintWarn "Found partial installation ($completed/9 steps completed). Resuming..."
+# Prints exactly one state: fresh, partial, installed, or conflict.
+function ClassifyKiwipanelInstallation() {
+    local state_dir="$INSTALL_STATE_DIR"
+    local marker=""
+    local marker_name=""
+    local completed=0
+    local started=0
+    local unknown=0
+    local known_steps=" base_system swap firewall ssl mariadb config panel ols finalize "
+
+    if [[ -e "$state_dir" || -L "$state_dir" ]]; then
+        if ! IsTrustedInstallStateDirectory; then
+            printf '%s\n' "conflict"
+            return 0
+        fi
+
+        # Durable completed-install evidence always wins. Step markers are
+        # resumable only while no completed installation can be observed.
+        if HasDurableKiwipanelEvidence; then
+            printf '%s\n' "installed"
+            return 0
+        fi
+
+        [[ -f "$state_dir/.installing" ]] && started=1
+        shopt -s nullglob
+        for marker in "$state_dir"/*.done "$state_dir"/*.done.tmp; do
+            marker_name="$(basename "$marker")"
+            marker_name="${marker_name%.tmp}"
+            marker_name="${marker_name%.done}"
+            if [[ "$known_steps" != *" $marker_name "* ]]; then
+                unknown=1
+                continue
+            fi
+            [[ "$marker" == *.done ]] && ((completed++)) || true
+        done
+        shopt -u nullglob
+
+        if [[ -f "$state_dir/finalize.done" ]]; then
+            printf '%s\n' "installed"
+            return 0
+        fi
+        if (( completed >= STEP_TOTAL )); then
+            printf '%s\n' "conflict"
+            return 0
+        fi
+        if (( unknown == 1 )); then
+            printf '%s\n' "conflict"
+            return 0
+        fi
+        if (( started == 1 || completed > 0 )); then
+            printf '%s\n' "partial"
+            return 0
+        fi
+        # An empty trusted directory can remain after a failure before the
+        # installer writes its explicit start marker. It carries no resume
+        # provenance and no installation evidence, so treat it as fresh.
+        printf '%s\n' "fresh"
         return 0
     fi
 
-    # Case 3: Fresh install
-    PrintGreen "Welcome! Thanks for choosing KiwiPanel."
+    if HasDurableKiwipanelEvidence; then
+        printf '%s\n' "installed"
+        return 0
+    fi
+    printf '%s\n' "fresh"
+}
+
+function PrintExistingInstallGuidance() {
+    PrintRed "KiwiPanel is already installed on this VPS."
+    PrintRed "The installer supports only a fresh installation or resuming an interrupted installation."
+    PrintRed "It will not overwrite, reinstall, or upgrade an existing installation."
+    PrintInfo "Check for updates with: kiwipanel panel update"
+    PrintInfo "Apply an available update from: Dashboard > System > Update"
+}
+
+function CheckFreshInstall() {
+    local state=""
+    local completed=0
+    state="$(ClassifyKiwipanelInstallation)"
+
+    case "$state" in
+        installed)
+            PrintExistingInstallGuidance
+            return 1
+            ;;
+        conflict)
+            PrintRed "KiwiPanel installation artifacts or untrusted installer state already exist."
+            PrintRed "Refusing to modify this VPS because a safe interrupted-install resume cannot be proven."
+            PrintInfo "Inspect $INSTALL_STATE_DIR and /opt/kiwipanel, or restore the VPS from a known-good backup."
+            return 1
+            ;;
+        partial)
+            completed=$(find "$INSTALL_STATE_DIR" -maxdepth 1 -type f -name '*.done' 2>/dev/null | wc -l | tr -d '[:space:]')
+            PrintWarn "Found interrupted installation ($completed/$STEP_TOTAL steps completed). Resuming..."
+            return 0
+            ;;
+        fresh)
+            PrintGreen "Welcome! Thanks for choosing KiwiPanel."
+            return 0
+            ;;
+        *)
+            PrintRed "Unable to classify KiwiPanel installation state safely."
+            return 1
+            ;;
+    esac
 }
 
 function PreflightChecks() {
@@ -346,8 +462,12 @@ function PreflightChecks() {
     fi
 }
 
-# Run initial checks
-CheckFreshInstall
+# Reject completed or ambiguous installations before downloads, extraction,
+# helper sourcing, metadata changes, binary replacement, or service control.
+if ! CheckFreshInstall; then
+    exit 1
+fi
+InitializeInstallerRuntime
 PreflightChecks
 
 
@@ -485,6 +605,20 @@ function RemoveMetaData(){
     rm -f "/opt/kiwipanel/meta/.installed"
 }
 
+function PublishBinaryAtomically() {
+    local source="$1"
+    local destination="$2"
+    local mode="$3"
+    local staged="${destination}.installing.$$"
+
+    rm -f -- "$staged"
+    if ! cp -- "$source" "$staged" || ! chmod "$mode" "$staged" || ! mv -f -- "$staged" "$destination"; then
+        rm -f -- "$staged"
+        PrintRed "Failed to publish binary atomically: $destination"
+        return 1
+    fi
+}
+
 function ExtractPackage() {
     # 1. Extract scaffold (scripts, config, systemd, templates)
     PrintInfo "==> Extracting scaffold"
@@ -493,17 +627,17 @@ function ExtractPackage() {
         exit 1
     }
 
-    # 2. Install architecture-specific binaries (overwrite any from scaffold)
+    # 2. Install architecture-specific binaries (overwrite any from scaffold).
+    # Publish by rename so a legitimate interrupted-install resume remains safe
+    # even if the panel step had already started a process from the old inode.
     PrintInfo "==> Installing KiwiPanel binaries (${KIWIPANEL_ARCH})"
     local bin_dir="$INSTALL_DIR/bin"
     mkdir -p "$bin_dir"
 
-    cp "$TMP_BINARY" "$bin_dir/kiwipanel"
-    chmod 750 "$bin_dir/kiwipanel"
+    PublishBinaryAtomically "$TMP_BINARY" "$bin_dir/kiwipanel" 750
     PrintGreen "✓ kiwipanel binary installed (${KIWIPANEL_ARCH})"
 
-    cp "$TMP_AGENT_BINARY" "$bin_dir/kiwipanel-agent"
-    chmod 755 "$bin_dir/kiwipanel-agent"
+    PublishBinaryAtomically "$TMP_AGENT_BINARY" "$bin_dir/kiwipanel-agent" 755
     PrintGreen "✓ kiwipanel-agent binary installed (${KIWIPANEL_ARCH})"
 
     RemoveMetaData
@@ -696,6 +830,15 @@ function FixScriptPermissions() {
     fi
 }
 
+function MarkInstallationStarted() {
+    local marker="$INSTALL_STATE_DIR/.installing"
+    local tmp_marker="$marker.tmp"
+
+    printf '%s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" > "$tmp_marker"
+    chmod 600 "$tmp_marker"
+    mv "$tmp_marker" "$marker"
+}
+
 function EnsureInstallStateDirectory() {
     local state_dir="$INSTALL_STATE_DIR"
 
@@ -753,6 +896,7 @@ function FetchingInstallScripts(){
     PrepareDirectories
     CreateGroupAndUser
     CreateSystemDirectories
+    MarkInstallationStarted
     ShowVersion
     DownloadPackage
     ExtractPackage
@@ -760,7 +904,9 @@ function FetchingInstallScripts(){
     FixScriptPermissions
 }
 
-FetchingInstallScripts
+if ! FetchingInstallScripts; then
+    exit 1
+fi
 
 source "/opt/kiwipanel/scripts/kiwi"
 

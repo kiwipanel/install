@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.98 (2026-09-10)
+
+- feat: creating user the quick way
+- fixed: cannot create public_html folder and setting proper permission: caused by user permission, now use agent run as root
+- feat: stop installing on a vps that Kiwipanel is there.
 ## v0.8.97 (2026-09-10)
 
 - feat: setting docker locally for testing insstalliation
