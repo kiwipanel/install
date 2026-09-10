@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.8.97 (2026-09-10)
+
+- feat: setting docker locally for testing insstalliation
 ## v0.8.96 (2026-09-10)
 
 - feat: remove golang when installing mariadb
