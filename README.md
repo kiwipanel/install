@@ -5,6 +5,7 @@
 ![Status](https://img.shields.io/badge/status-pre--alpha-red)
 ![Version](https://img.shields.io/badge/version-0.8.91-green)
 [![Tests](https://github.com/kiwipanel/kiwipanel/actions/workflows/tests.yml/badge.svg)](https://github.com/kiwipanel/kiwipanel/actions/workflows/tests.yml)
+[![CircleCI](https://dl.circleci.com/status-badge/img/circleci/TdHcDLcKj4TGLSEydex7c4/KrDmj7ZSgx9CfqJDYaGqiU/tree/main.svg?style=svg&circle-token=CCIPRJ_Z5NjRKWznnW6hUrw8iWKk_72e33c3a3ad5ea0b1da43e617f5287a3cb19e53a)](https://dl.circleci.com/status-badge/redirect/circleci/TdHcDLcKj4TGLSEydex7c4/KrDmj7ZSgx9CfqJDYaGqiU/tree/main)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/b1233420d6264734b6c79190bf03c354)](https://app.codacy.com/gh/kiwipanel/kiwipanel/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 
 <!--<p align="center">
