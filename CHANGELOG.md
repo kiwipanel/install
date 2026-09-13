@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.8.99 (2026-09-13)
+
+- fixed test failure in circleCI
+- fixed - fail test via circleci
+- feat: update Go version
+- feat: add circleci
+- feat: fixed rocky9
+- feat: added install test via docker
+- feat: add verify to test further operation
+- fixed: provision vhost
+- feat: setting shutdown to less than 30 seconds
 ## v0.8.98 (2026-09-10)
 
 - feat: creating user the quick way
