@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.02 (2026-09-14)
+
+- fixed installinng mariadb on debian amd
+- feat: using local scripts rather than cdn
 ## v0.9.01 (2026-09-13)
 
 - fixed: provision website dont require php-runtimes
