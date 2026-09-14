@@ -2,33 +2,33 @@
   "schema": 2,
   "channels": {
     "stable": {
-      "latest": "0.8.99"
+      "latest": "0.9.01"
     }
   },
   "releases": [
     {
-      "version": "0.8.99",
+      "version": "0.9.01",
       "channel": "stable",
-      "release_date": "2026-09-13",
+      "release_date": "2026-09-14",
       "os": "linux",
       "arch": "amd64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.99/kiwipanel-linux-amd64",
-      "sha256": "86f18376e72ba19d40a87c898d531923cf39058166588ac1736ffb26e3a123ae",
-      "agent_sha256": "9fd7d59fa87475c2569be59d52afc6d2a1dad65a36380540110294ae82642a07",
-      "scaffold_sha256": "c9f1c47ad8bb54ba41e59f8682dc978beff7e3e44b13199f31c8921a86d1cc83",
-      "notes": "Release v0.8.99"
+      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.01/kiwipanel-linux-amd64",
+      "sha256": "8e841d777f9153b84c7ca33ca7348a730a3e3e70bdd5a9f21f95260bc638f71e",
+      "agent_sha256": "fc33becacce62fcdbbf097db0b5872139877501940c4eda18c8818a8fa17eed6",
+      "scaffold_sha256": "47c65dcd939f3181849e37212bbf36714a2d7f98e0eb815645429f4f690d5b4b",
+      "notes": "Release v0.9.01"
     },
     {
-      "version": "0.8.99",
+      "version": "0.9.01",
       "channel": "stable",
-      "release_date": "2026-09-13",
+      "release_date": "2026-09-14",
       "os": "linux",
       "arch": "arm64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.8.99/kiwipanel-linux-arm64",
-      "sha256": "8ba92a5079a3ba63b7db17b9380b104f2643202ab64ae8a10ad4060dc06eafcf",
-      "agent_sha256": "0cc15f845eef2e1022e80c7dd446e628ef9bfc027d09a56d315da83bdbab0066",
-      "scaffold_sha256": "c9f1c47ad8bb54ba41e59f8682dc978beff7e3e44b13199f31c8921a86d1cc83",
-      "notes": "Release v0.8.99 for ARM64 architecture"
+      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.01/kiwipanel-linux-arm64",
+      "sha256": "b4ce03c64c1c9921eedf9bf13d09ef821d37856ed73271e47630daef651b44d4",
+      "agent_sha256": "7a36e0b9814361718f5cf9d9568ed96bcb77bb7f47139696109a035f346a1428",
+      "scaffold_sha256": "47c65dcd939f3181849e37212bbf36714a2d7f98e0eb815645429f4f690d5b4b",
+      "notes": "Release v0.9.01 for ARM64 architecture"
     }
   ]
 }
