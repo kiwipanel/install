@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.03 (2026-09-15)
+
+- feat: clean up messy docs
+- feat: increasing time to 900 when installing Mariadb to prevent frozen state
+- feat: fixed upgrading frozen
 ## v0.9.02 (2026-09-14)
 
 - fixed installinng mariadb on debian amd
