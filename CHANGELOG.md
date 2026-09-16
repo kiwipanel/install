@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.05 (2026-09-16)
+
+- fixed github action relating to mariadb
+- fixed mariadb on debian, ubuntu
+- fixed error when running test on Github Action
 ## v0.9.03 (2026-09-15)
 
 - feat: clean up messy docs
