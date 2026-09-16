@@ -18,6 +18,140 @@
 # Or download first:
 # curl -sLO https://raw.githubusercontent.com/kiwipanel/install/main/install && chmod +x install && sudo bash install
 
+# Parse before root checks, traps, logging, locks or helper loading.
+INSTALL_STEPS=(base_system swap firewall ssl mariadb config panel ols finalize)
+VERIFY_ONLY=0
+STEPS_FILTER=""
+FULL_INSTALL=1
+for arg in "$@"; do
+    case "$arg" in
+        --verify-only)
+            if [[ "$VERIFY_ONLY" == 1 ]]; then
+                printf 'Invalid arguments: duplicate --verify-only\n' >&2; exit 2
+            fi
+            VERIFY_ONLY=1 ;;
+        --steps=*)
+            if [[ -n "$STEPS_FILTER" || -z "${arg#--steps=}" ]]; then
+                printf 'Invalid arguments: empty or duplicate --steps\n' >&2; exit 2
+            fi
+            STEPS_FILTER="${arg#--steps=}" ;;
+        *) printf 'Invalid argument: %s\n' "$arg" >&2; exit 2 ;;
+    esac
+done
+if [[ -n "$STEPS_FILTER" ]]; then
+    remaining="$STEPS_FILTER"
+    seen=","
+    while :; do
+        step="${remaining%%,*}"
+        case "$step" in
+            base_system|swap|firewall|ssl|mariadb|config|panel|ols|finalize) ;;
+            *) printf 'Invalid step selection: %s\n' "$STEPS_FILTER" >&2; exit 2 ;;
+        esac
+        if [[ "$seen" == *",$step,"* ]]; then
+            printf 'Duplicate step: %s\n' "$step" >&2; exit 2
+        fi
+        seen+="$step,"
+        [[ "$remaining" == *,* ]] || break
+        remaining="${remaining#*,}"
+    done
+fi
+StepSelected() { [[ -z "$STEPS_FILTER" || ",$STEPS_FILTER," == *",$1,"* ]]; }
+for step in "${INSTALL_STEPS[@]}"; do
+    StepSelected "$step" || FULL_INSTALL=0
+done
+
+# Dedicated observational probes. Never source release helpers here: even their
+# health checks can log, create credential files, or invoke application startup.
+# No SQL/HTTP requests (which can cause server-side logs), repairs or service actions.
+ReadOnlyCheck() {
+    local root="${KIWIPANEL_INSTALL_ROOT:-/opt/kiwipanel}"
+    local secrets="${KIWIPANEL_SECRETS_FILE:-/etc/kiwipanel/secrets.env}"
+    case "$1" in
+        base_system) systemctl is-active --quiet cron || systemctl is-active --quiet crond ;;
+        swap)
+            swapon --show | grep -q '/' && return 0
+            local ram
+            ram=$(free -m | awk '/Mem:/ {print $2}') || return 1
+            [[ "$ram" =~ ^[0-9]+$ ]] && (( ram > 4096 )) ;;
+        firewall)
+            # Inspect kernel rules directly: ufw status can initialize its log.
+            if systemctl is-active --quiet firewalld; then
+                firewall-cmd --query-port=8443/tcp >/dev/null || return 1
+            else
+                local rules
+                rules=$(iptables-save -t filter) || return 1
+                grep -qE '^-A INPUT .* -j ufw-before-input$|^-A INPUT -j ufw-before-input$' <<< "$rules" || return 1
+                grep -qE '^-A ufw-user-input .*--dport 8443 .* -j ACCEPT$|^-A ufw-user-input .*--dport 8443 -j ACCEPT$' <<< "$rules" || return 1
+            fi
+            systemctl is-active --quiet fail2ban ;;
+        ssl)
+            [[ -s "$root/ssl/panel/kiwipanel.crt" && -s "$root/ssl/panel/kiwipanel.key" ]] &&
+                openssl x509 -in "$root/ssl/panel/kiwipanel.crt" -checkend 0 -noout ;;
+        mariadb)
+            { systemctl is-active --quiet mariadb || systemctl is-active --quiet mysql ||
+                systemctl is-active --quiet mysqld; } || return 1
+            [[ -r "$secrets" ]] && grep -qE '^(DB_PASS|MARIADB_DB_PASSWORD)=.+' "$secrets" ;;
+        config) [[ -s "$root/config/kiwipanel.toml" ]] ;;
+        panel)
+            [[ -f "${KIWIPANEL_SERVICE_UNIT:-/etc/systemd/system/kiwipanel.service}" &&
+                -s "$root/meta/passcode" && -s "$root/meta/terminal_token" ]] &&
+                systemctl is-active --quiet kiwipanel && systemctl is-active --quiet kiwipanel-agent ;;
+        ols)
+            [[ -d /usr/local/lsws ]] &&
+                { systemctl is-active --quiet lsws || systemctl is-active --quiet lshttpd; } &&
+                ss -tln | grep -q ':80 ' ;;
+        finalize)
+            [[ -s "$root/data/kiwipanel.db" ]] && systemctl is-active --quiet kiwipanel ;;
+        *) return 1 ;;
+    esac
+}
+
+VerifyReadOnly() {
+    local step failed=0 checked=0
+    for step in "${INSTALL_STEPS[@]}"; do
+        StepSelected "$step" || continue
+        checked=$((checked + 1))
+        if ReadOnlyCheck "$step" >/dev/null 2>&1; then
+            printf '%s: PASS (observational check)\n' "$step"
+        else
+            printf '%s: FAIL (required artifacts/service state unavailable)\n' "$step"
+            failed=$((failed + 1))
+        fi
+    done
+    printf 'Verification complete: %s checked, %s failed. No changes made.\n' "$checked" "$failed"
+    [[ "$failed" == 0 ]]
+}
+
+ValidateStepPrerequisites() {
+    local step dependency dependencies failed=0 checked=","
+    for step in "${INSTALL_STEPS[@]}"; do
+        StepSelected "$step" || continue
+        # Transitive dependencies, in execution order. Never install omitted steps.
+        case "$step" in
+            firewall|mariadb|ols) dependencies="base_system" ;;
+            config) dependencies="base_system mariadb" ;;
+            panel) dependencies="base_system ssl mariadb config" ;;
+            finalize) dependencies="base_system swap firewall ssl mariadb config panel ols" ;;
+            *) dependencies="" ;;
+        esac
+        for dependency in $dependencies; do
+            StepSelected "$dependency" && continue
+            [[ "$checked" == *",$dependency,"* ]] && continue
+            checked+="$dependency,"
+            if ! ReadOnlyCheck "$dependency" >/dev/null 2>&1; then
+                printf 'Missing prerequisite: %s (required by %s); include it in --steps or provision it first.\n' "$dependency" "$step" >&2
+                failed=$((failed + 1))
+            fi
+        done
+    done
+    [[ "$failed" == 0 ]]
+}
+
+if [[ "$VERIFY_ONLY" == 1 ]]; then
+    if VerifyReadOnly; then exit 0; else exit 1; fi
+fi
+if ! ValidateStepPrerequisites; then exit 1; fi
+
 ######################################################################
 # Check for sudo/root privileges######################################
 if [ "$(id -u)" -ne 0 ]; then
@@ -30,8 +164,6 @@ export LC_ALL="${LC_ALL:-en_US.UTF-8}"
 
 # Stop on error
 set -euo pipefail
-trap 'LogError "Failed: command=\"$BASH_COMMAND\" line=$LINENO"' ERR
-trap 'Cleanup 2>/dev/null || true' EXIT
 
 # Create log file
 KIWIPANEL_DIR="/opt/kiwipanel"
@@ -148,9 +280,6 @@ function AcquireInstallerLock() {
     LogInfo "Installer lock acquired: file=$INSTALLER_LOCK_FILE pid=$$"
 }
 
-if ! AcquireInstallerLock; then
-    exit 1
-fi
 
 # ==============================================================================
 # Step Runner Framework
@@ -165,17 +294,6 @@ INSTALL_ROOT="${KIWIPANEL_INSTALL_ROOT:-/opt/kiwipanel}"
 PANEL_SERVICE_UNIT="${KIWIPANEL_SERVICE_UNIT:-/etc/systemd/system/kiwipanel.service}"
 STEP_TOTAL=9
 STEP_CURRENT=0
-VERIFY_ONLY=0
-STEPS_FILTER=""
-
-# Parse optional flags
-for arg in "$@"; do
-    case "$arg" in
-        --verify-only) VERIFY_ONLY=1 ;;
-        --steps=*)     STEPS_FILTER="${arg#--steps=}" ;;
-    esac
-done
-
 # run_step "step_name" execute_function verify_function
 run_step() {
     local name="$1"
@@ -185,12 +303,7 @@ run_step() {
 
     ((STEP_CURRENT++)) || true
 
-    # If --steps filter is set, skip steps not in the list
-    if [[ -n "$STEPS_FILTER" ]]; then
-        if ! echo ",$STEPS_FILTER," | grep -q ",$name,"; then
-            return 0
-        fi
-    fi
+    StepSelected "$name" || return 0
 
     local prefix="[${STEP_CURRENT}/${STEP_TOTAL}] ${name}"
 
@@ -207,16 +320,6 @@ run_step() {
         fi
     fi
 
-    # --verify-only mode: just report status, don't execute
-    if [[ "$VERIFY_ONLY" == "1" ]]; then
-        if "$verify_fn" 2>/dev/null; then
-            PrintGreen "${prefix} ✔ verified"
-        else
-            PrintRed "${prefix} ✘ FAILED"
-        fi
-        return 0
-    fi
-
     # Execute
     PrintInfo "${prefix} ▶ running..."
     LogInfo "Step '$name': starting"
@@ -227,6 +330,10 @@ run_step() {
         # Verify after execution
         if "$verify_fn" 2>/dev/null; then
             # Atomic mark: write to tmp, then mv (survives power loss)
+            if [[ "$name" == finalize && "$FULL_INSTALL" == 0 ]]; then
+                PrintGreen "${prefix} ✔ selected step completed (partial installation)"
+                return 0
+            fi
             local tmp_file="${state_file}.tmp"
             date -u +"%Y-%m-%dT%H:%M:%SZ" > "$tmp_file"
             mv "$tmp_file" "$state_file"
@@ -467,6 +574,13 @@ function PreflightChecks() {
 if ! CheckFreshInstall; then
     exit 1
 fi
+if ! AcquireInstallerLock; then
+    exit 1
+fi
+# Recheck after acquiring the lock to close the classification race.
+if ! CheckFreshInstall; then exit 1; fi
+trap 'LogError "Failed: command=\"$BASH_COMMAND\" line=$LINENO"' ERR
+trap 'Cleanup 2>/dev/null || true' EXIT
 InitializeInstallerRuntime
 PreflightChecks
 
@@ -1148,9 +1262,11 @@ function GenerateThePasscode() {
     chown kiwipanel:kiwisecure "$PASSCODE_FILE"
     chmod 640 "$PASSCODE_FILE"
 
-    touch "$INSTALL_MARKER"
-    chown kiwipanel:kiwisecure "$INSTALL_MARKER"
-    chmod 640 "$INSTALL_MARKER"
+    if [[ "$FULL_INSTALL" == 1 ]]; then
+        touch "$INSTALL_MARKER"
+        chown kiwipanel:kiwisecure "$INSTALL_MARKER"
+        chmod 640 "$INSTALL_MARKER"
+    fi
 
     PrintGreen "✔ New passcode generated."
 }
@@ -1498,6 +1614,10 @@ source "/opt/kiwipanel/scripts/wrapper"
 function InstallKiwipanel() {
     local config_file="/opt/kiwipanel/config/kiwipanel.toml"
     if [[ ! -f "$config_file" ]]; then
+        if ! StepSelected config; then
+            PrintRed "Config prerequisite disappeared; refusing an implicit config install"
+            return 1
+        fi
         PrintWarn "Config file not found, generating now..."
         WriteToConfig || {
             PrintRed "Failed to generate config file"
@@ -1875,7 +1995,11 @@ function main() {
     run_step "ols"          step_ols          verify_ols
     run_step "finalize"     step_finalize     verify_finalize
 
-    SuccessMessage
+    if [[ "$FULL_INSTALL" == 1 ]]; then
+        SuccessMessage
+    else
+        PrintGreen "Selected steps completed: $STEPS_FILTER. Partial installation; full installation is not marked complete."
+    fi
     Cleanup
 }
 

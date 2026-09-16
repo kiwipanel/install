@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.07 (2026-09-16)
+
+- feat: harness installation
+- feat: add useful info to user when running kiwipaneel update via cli
 ## v0.9.06 (2026-09-16)
 
 - feat: added Makefile command to test mariadb-pty
