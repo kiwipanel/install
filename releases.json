@@ -2,33 +2,33 @@
   "schema": 2,
   "channels": {
     "stable": {
-      "latest": "0.9.06"
+      "latest": "0.9.07"
     }
   },
   "releases": [
     {
-      "version": "0.9.06",
+      "version": "0.9.07",
       "channel": "stable",
       "release_date": "2026-09-16",
       "os": "linux",
       "arch": "amd64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.06/kiwipanel-linux-amd64",
-      "sha256": "69367f931ec85d7ad6817a55adbdd5d8f1ea1b7615a097a786b6ff719546dcad",
-      "agent_sha256": "c3c7d12020274d5a831dab9d8fb06370c85e868f9e63cef52fd175923f90cf8c",
-      "scaffold_sha256": "583aca90350911b0725fcd090cd5853dbda0fd3dbcc2c1321d110ce336a4f938",
-      "notes": "Release v0.9.06 for AMD64 architecture"
+      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.07/kiwipanel-linux-amd64",
+      "sha256": "61ed6aa444a6865cb191a02dbc4580b8e8a9a974e6ce978c8aba0c79dd0b2195",
+      "agent_sha256": "c8d20df6f0e39255a3e7caf58849522994334c141467ae1bbd441b685e344339",
+      "scaffold_sha256": "7271101375db4bd0720508b4972af667f7f66047fcdf4bda49a3253ce0ef4b5d",
+      "notes": "Release v0.9.07 for AMD64 architecture"
     },
     {
-      "version": "0.9.06",
+      "version": "0.9.07",
       "channel": "stable",
       "release_date": "2026-09-16",
       "os": "linux",
       "arch": "arm64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.06/kiwipanel-linux-arm64",
-      "sha256": "561c0caa276408532982cee3f613b1908ca108952be198c32a849416a4b6eed3",
-      "agent_sha256": "b6046974f73b7695f27e03770bfa6c3174fc92bf937fc32245515bdfd85be87d",
-      "scaffold_sha256": "583aca90350911b0725fcd090cd5853dbda0fd3dbcc2c1321d110ce336a4f938",
-      "notes": "Release v0.9.06 for ARM64 architecture"
+      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.07/kiwipanel-linux-arm64",
+      "sha256": "5806498452c4356b32b8d35f9f6dd5ac13226f46b3a1684cfa6a35e3f330dfcf",
+      "agent_sha256": "1904aaebe14889fbc203b667246a37cfc382cad7bbc6bc1a8898df30ff5bcabc",
+      "scaffold_sha256": "7271101375db4bd0720508b4972af667f7f66047fcdf4bda49a3253ce0ef4b5d",
+      "notes": "Release v0.9.07 for ARM64 architecture"
     }
   ]
 }
