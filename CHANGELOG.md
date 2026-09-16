@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.06 (2026-09-16)
+
+- feat: added Makefile command to test mariadb-pty
+- fixed: found and fix the rooted cause that frozen mariadb when installing
+- fixed: now the button when updating is no longer frozen
 ## v0.9.05 (2026-09-16)
 
 - fixed github action relating to mariadb
