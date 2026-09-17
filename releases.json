@@ -2,37 +2,37 @@
   "schema": 2,
   "channels": {
     "stable": {
-      "latest": "0.9.09"
+      "latest": "0.9.10"
     }
   },
   "releases": [
     {
-          "version": "0.9.09",
+          "version": "0.9.10",
           "channel": "stable",
-          "release_date": "2026-09-16",
+          "release_date": "2026-09-18",
           "os": "linux",
           "arch": "amd64",
-          "download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.09/kiwipanel-linux-amd64",
-          "agent_download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.09/kiwipanel-agent-linux-amd64",
-          "scaffold_url": "https://github.com/kiwipanel/install/releases/download/v0.9.09/kiwipanel-scaffold.zip",
-          "sha256": "451774b3bad0448777a95d5ce25c70752981b66f00ac775be53a63dcb9afc21f",
-          "agent_sha256": "6104043dae8909377b5a84fbb6cf29d4308cb37d5f36a957593039131335204f",
-          "scaffold_sha256": "5bd3f9431201480d640cab38f5d937bb55e65faa30097c3fa44017a71342d39f",
-          "notes": "Release v0.9.09"
+          "download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.10/kiwipanel-linux-amd64",
+          "agent_download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.10/kiwipanel-agent-linux-amd64",
+          "scaffold_url": "https://github.com/kiwipanel/install/releases/download/v0.9.10/kiwipanel-scaffold.zip",
+          "sha256": "d6240125f7abbb6178bca8b245d64935cdb2803d851807c7f20d1dd02c5b1aac",
+          "agent_sha256": "f6e1e225e7b0f06c97547c92f2e91ea3ce0954569ed1a5d4153cf489e313f332",
+          "scaffold_sha256": "b08e8cfffedd445d3cd208864ba9c2e152bb89456a1b464291ba6ee6b9a5c9c0",
+          "notes": "Release v0.9.10"
         },
         {
-          "version": "0.9.09",
+          "version": "0.9.10",
           "channel": "stable",
-          "release_date": "2026-09-16",
+          "release_date": "2026-09-18",
           "os": "linux",
           "arch": "arm64",
-          "download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.09/kiwipanel-linux-arm64",
-          "agent_download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.09/kiwipanel-agent-linux-arm64",
-          "scaffold_url": "https://github.com/kiwipanel/install/releases/download/v0.9.09/kiwipanel-scaffold.zip",
-          "sha256": "959a280505071d160c83e85e3a5cbc028ac3e7eaf8f7430cf36b61455f7e1279",
-          "agent_sha256": "f5ae21e5e37634fb9568f523ec489ae78d898e3be99910af2b5d2991f93c9018",
-          "scaffold_sha256": "5bd3f9431201480d640cab38f5d937bb55e65faa30097c3fa44017a71342d39f",
-          "notes": "Release v0.9.09"
+          "download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.10/kiwipanel-linux-arm64",
+          "agent_download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.10/kiwipanel-agent-linux-arm64",
+          "scaffold_url": "https://github.com/kiwipanel/install/releases/download/v0.9.10/kiwipanel-scaffold.zip",
+          "sha256": "5bd6f9d16499f4209497acc2fc1e382f108f6874f282971d4cf78f2afcba4f88",
+          "agent_sha256": "55cb489982244272fbb7d6bdcbe38b678d40abdd0ff632dd09fab84241aa090d",
+          "scaffold_sha256": "b08e8cfffedd445d3cd208864ba9c2e152bb89456a1b464291ba6ee6b9a5c9c0",
+          "notes": "Release v0.9.10"
         }
   ]
 }
