@@ -7,28 +7,32 @@
   },
   "releases": [
     {
-      "version": "0.9.07",
-      "channel": "stable",
-      "release_date": "2026-09-16",
-      "os": "linux",
-      "arch": "amd64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.07/kiwipanel-linux-amd64",
-      "sha256": "61ed6aa444a6865cb191a02dbc4580b8e8a9a974e6ce978c8aba0c79dd0b2195",
-      "agent_sha256": "c8d20df6f0e39255a3e7caf58849522994334c141467ae1bbd441b685e344339",
-      "scaffold_sha256": "7271101375db4bd0720508b4972af667f7f66047fcdf4bda49a3253ce0ef4b5d",
-      "notes": "Release v0.9.07 for AMD64 architecture"
-    },
-    {
-      "version": "0.9.07",
-      "channel": "stable",
-      "release_date": "2026-09-16",
-      "os": "linux",
-      "arch": "arm64",
-      "download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.07/kiwipanel-linux-arm64",
-      "sha256": "5806498452c4356b32b8d35f9f6dd5ac13226f46b3a1684cfa6a35e3f330dfcf",
-      "agent_sha256": "1904aaebe14889fbc203b667246a37cfc382cad7bbc6bc1a8898df30ff5bcabc",
-      "scaffold_sha256": "7271101375db4bd0720508b4972af667f7f66047fcdf4bda49a3253ce0ef4b5d",
-      "notes": "Release v0.9.07 for ARM64 architecture"
-    }
+          "version": "0.9.07",
+          "channel": "stable",
+          "release_date": "2026-09-16",
+          "os": "linux",
+          "arch": "amd64",
+          "download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.07/kiwipanel-linux-amd64",
+          "agent_download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.07/kiwipanel-agent-linux-amd64",
+          "scaffold_url": "https://github.com/kiwipanel/install/releases/download/v0.9.07/kiwipanel-scaffold.zip",
+          "sha256": "61ed6aa444a6865cb191a02dbc4580b8e8a9a974e6ce978c8aba0c79dd0b2195",
+          "agent_sha256": "c8d20df6f0e39255a3e7caf58849522994334c141467ae1bbd441b685e344339",
+          "scaffold_sha256": "7271101375db4bd0720508b4972af667f7f66047fcdf4bda49a3253ce0ef4b5d",
+          "notes": "Release v0.9.07"
+        },
+        {
+          "version": "0.9.07",
+          "channel": "stable",
+          "release_date": "2026-09-16",
+          "os": "linux",
+          "arch": "arm64",
+          "download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.07/kiwipanel-linux-arm64",
+          "agent_download_url": "https://github.com/kiwipanel/install/releases/download/v0.9.07/kiwipanel-agent-linux-arm64",
+          "scaffold_url": "https://github.com/kiwipanel/install/releases/download/v0.9.07/kiwipanel-scaffold.zip",
+          "sha256": "5806498452c4356b32b8d35f9f6dd5ac13226f46b3a1684cfa6a35e3f330dfcf",
+          "agent_sha256": "1904aaebe14889fbc203b667246a37cfc382cad7bbc6bc1a8898df30ff5bcabc",
+          "scaffold_sha256": "7271101375db4bd0720508b4972af667f7f66047fcdf4bda49a3253ce0ef4b5d",
+          "notes": "Release v0.9.07"
+        }
   ]
 }
