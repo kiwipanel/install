@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.08 (2026-09-17)
+
+- feat: security - ensuring the update flow safely
+- feat: add comprehensive checksum, validation when installing
 ## v0.9.07 (2026-09-16)
 
 - feat: harness installation

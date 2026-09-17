@@ -605,6 +605,123 @@ LSWS_SERVICE=""
 # Fetching install scripts
 # ------------------------------------------------------------------------------
 
+function IsValidSHA256Checksum() {
+    [[ "$1" =~ ^[0-9a-f]{64}$ ]]
+}
+
+function ReadRequiredReleaseSHA256() {
+    local release="$1"
+    local field="$2"
+    local checksum
+
+    # `jq -r` would coerce numbers and booleans to text. Require a JSON string
+    # before accepting its exact lower-case SHA-256 representation.
+    checksum="$(jq -er --arg field "$field" '.[$field] | select(type == "string")' <<< "$release")" || return 1
+    IsValidSHA256Checksum "$checksum" || return 1
+    printf '%s\n' "$checksum"
+}
+
+function ReadRequiredReleaseString() {
+    local release="$1"
+    local field="$2"
+    local value
+
+    # Catalog identity and URLs must be actual non-empty JSON strings. Do not
+    # let jq turn null, booleans, or numbers into apparently valid text.
+    value="$(jq -er --arg field "$field" '.[$field] | select(type == "string" and length > 0)' <<< "$release")" || return 1
+    printf '%s\n' "$value"
+}
+
+function IsValidReleaseVersion() {
+    [[ "$1" =~ ^[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]
+}
+
+function ValidateRequiredArtifactURLs() {
+    local expected_base_url
+    local expected_panel_url
+    local expected_agent_url
+    local expected_scaffold_url
+
+    # Exact canonical URLs prevent a catalog record from combining assets from
+    # tags, architectures, repositories, hosts, schemes, or paths. The explicit
+    # equality check also rejects query strings, fragments, credentials, and
+    # traversal/encoding variants instead of attempting unsafe URL rewriting.
+    if ! IsValidReleaseVersion "${KIWIPANEL_VERSION:-}" || \
+       [[ "${KIWIPANEL_OS:-}" != "linux" ]] || \
+       [[ "${KIWIPANEL_ARCH:-}" != "amd64" && "${KIWIPANEL_ARCH:-}" != "arm64" ]]; then
+        PrintRed "Release catalog has an invalid selected release identity"
+        return 1
+    fi
+
+    expected_base_url="https://github.com/kiwipanel/install/releases/download/v${KIWIPANEL_VERSION}"
+    expected_panel_url="${expected_base_url}/kiwipanel-linux-${KIWIPANEL_ARCH}"
+    expected_agent_url="${expected_base_url}/kiwipanel-agent-linux-${KIWIPANEL_ARCH}"
+    expected_scaffold_url="${expected_base_url}/kiwipanel-scaffold.zip"
+
+    if [[ "${KIWIPANEL_DOWNLOAD_URL:-}" != "$expected_panel_url" || \
+          "${KIWIPANEL_AGENT_DOWNLOAD_URL:-}" != "$expected_agent_url" || \
+          "${KIWIPANEL_SCAFFOLD_URL:-}" != "$expected_scaffold_url" ]]; then
+        PrintRed "Release catalog artifact URLs do not match the selected release identity"
+        return 1
+    fi
+}
+
+function ValidateSelectedReleaseIdentity() {
+    local release="$1"
+    local expected_version="$2"
+    local expected_os="$3"
+    local expected_arch="$4"
+    local version
+    local os
+    local arch
+    local panel_url
+    local agent_url
+    local scaffold_url
+
+    version="$(ReadRequiredReleaseString "$release" "version")" || return 1
+    os="$(ReadRequiredReleaseString "$release" "os")" || return 1
+    arch="$(ReadRequiredReleaseString "$release" "arch")" || return 1
+    panel_url="$(ReadRequiredReleaseString "$release" "download_url")" || return 1
+    agent_url="$(ReadRequiredReleaseString "$release" "agent_download_url")" || return 1
+    scaffold_url="$(ReadRequiredReleaseString "$release" "scaffold_url")" || return 1
+
+    [[ "$version" == "$expected_version" && "$os" == "$expected_os" && "$arch" == "$expected_arch" ]] || return 1
+    KIWIPANEL_VERSION="$version"
+    KIWIPANEL_OS="$os"
+    KIWIPANEL_ARCH="$arch"
+    KIWIPANEL_DOWNLOAD_URL="$panel_url"
+    KIWIPANEL_AGENT_DOWNLOAD_URL="$agent_url"
+    KIWIPANEL_SCAFFOLD_URL="$scaffold_url"
+    ValidateRequiredArtifactURLs
+}
+
+function ValidateRequiredChecksumMetadata() {
+    local checksum
+    local label
+    local field
+
+    for field in SCAFFOLD SHA256 AGENT; do
+        case "$field" in
+            SCAFFOLD)
+                checksum="${KIWIPANEL_SCAFFOLD_SHA256:-}"
+                label="Scaffold"
+                ;;
+            SHA256)
+                checksum="${KIWIPANEL_SHA256:-}"
+                label="KiwiPanel binary"
+                ;;
+            AGENT)
+                checksum="${KIWIPANEL_AGENT_SHA256:-}"
+                label="KiwiPanel agent binary"
+                ;;
+        esac
+        if ! IsValidSHA256Checksum "$checksum"; then
+            PrintRed "$label has a missing or invalid SHA-256 checksum in the release catalog"
+            return 1
+        fi
+    done
+}
+
 function VerifySHA256Checksum() {
     local file="$1"
     local expected="$2"
@@ -612,7 +729,7 @@ function VerifySHA256Checksum() {
     local checksum_output
     local actual
 
-    if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+    if ! IsValidSHA256Checksum "$expected"; then
         PrintRed "$label has an invalid SHA-256 checksum in the release catalog"
         return 1
     fi
@@ -634,27 +751,31 @@ function VerifySHA256Checksum() {
 }
 
 function DownloadPackage() {
+    # The complete selected-record identity and all expected hashes must be
+    # present and valid before any artifact download. Return, rather than relying
+    # on `set -e`, because callers invoke this in conditional contexts where Bash
+    # suppresses errexit propagation.
+    if ! ValidateRequiredArtifactURLs || ! ValidateRequiredChecksumMetadata; then
+        return 1
+    fi
+
     # 1. Download architecture-independent scaffold (scripts, config, systemd, templates)
     PrintInfo "==> Downloading KiwiPanel scaffold"
     PrintInfo "    URL: $KIWIPANEL_SCAFFOLD_URL"
     LogInfo "Scaffold download: version=${KIWIPANEL_VERSION:-unknown} arch=${KIWIPANEL_ARCH:-unknown} url=$KIWIPANEL_SCAFFOLD_URL expected_sha256=${KIWIPANEL_SCAFFOLD_SHA256:-Not provided}"
-    if ! curl -L --fail --retry 3 --retry-delay 2 "$KIWIPANEL_SCAFFOLD_URL" -o "$TMP_ZIP"; then
+    if ! curl --proto '=https' --proto-redir '=https' -L --fail --retry 3 --retry-delay 2 "$KIWIPANEL_SCAFFOLD_URL" -o "$TMP_ZIP"; then
         PrintRed "Failed to download KiwiPanel scaffold"
-        exit 1
+        return 1
     fi
 
     if [[ ! -s "$TMP_ZIP" ]]; then
         PrintRed "Downloaded scaffold is empty"
-        exit 1
+        return 1
     fi
 
-    if [[ -n "${KIWIPANEL_SCAFFOLD_SHA256:-}" && "$KIWIPANEL_SCAFFOLD_SHA256" != "Not provided" ]]; then
-        if ! VerifySHA256Checksum "$TMP_ZIP" "$KIWIPANEL_SCAFFOLD_SHA256" "Scaffold"; then
-            rm -f "$TMP_ZIP"
-            exit 1
-        fi
-    else
-        PrintWarn "No scaffold SHA-256 checksum available, skipping verification"
+    if ! VerifySHA256Checksum "$TMP_ZIP" "$KIWIPANEL_SCAFFOLD_SHA256" "Scaffold"; then
+        rm -f "$TMP_ZIP"
+        return 1
     fi
 
     # 2. Download architecture-specific binary
@@ -662,52 +783,44 @@ function DownloadPackage() {
 
     if [[ -z "${KIWIPANEL_DOWNLOAD_URL:-}" ]]; then
         PrintRed "KIWIPANEL_DOWNLOAD_URL is not set. Did ShowVersion() run?"
-        exit 1
+        return 1
     fi
 
     PrintInfo "    URL: $KIWIPANEL_DOWNLOAD_URL"
 
-    if ! curl -L --fail --retry 3 --retry-delay 2 "$KIWIPANEL_DOWNLOAD_URL" -o "$TMP_BINARY"; then
+    if ! curl --proto '=https' --proto-redir '=https' -L --fail --retry 3 --retry-delay 2 "$KIWIPANEL_DOWNLOAD_URL" -o "$TMP_BINARY"; then
         PrintRed "Failed to download KiwiPanel binary"
-        exit 1
+        return 1
     fi
 
     if [[ ! -s "$TMP_BINARY" ]]; then
         PrintRed "Downloaded binary is empty"
-        exit 1
+        return 1
     fi
 
-    # 3. Validate SHA-256 checksum of binary if provided
-    if [[ -n "${KIWIPANEL_SHA256:-}" && "$KIWIPANEL_SHA256" != "Not provided" ]]; then
-        if ! VerifySHA256Checksum "$TMP_BINARY" "$KIWIPANEL_SHA256" "KiwiPanel binary"; then
-            rm -f "$TMP_BINARY"
-            exit 1
-        fi
-    else
-        PrintWarn "No KiwiPanel binary SHA-256 checksum available, skipping verification"
+    # 3. Validate SHA-256 checksum of binary.
+    if ! VerifySHA256Checksum "$TMP_BINARY" "$KIWIPANEL_SHA256" "KiwiPanel binary"; then
+        rm -f "$TMP_BINARY"
+        return 1
     fi
 
     # 4. Download architecture-specific agent binary
     PrintInfo "==> Downloading KiwiPanel agent binary (${KIWIPANEL_ARCH})"
     PrintInfo "    URL: $KIWIPANEL_AGENT_DOWNLOAD_URL"
 
-    if ! curl -L --fail --retry 3 --retry-delay 2 "$KIWIPANEL_AGENT_DOWNLOAD_URL" -o "$TMP_AGENT_BINARY"; then
+    if ! curl --proto '=https' --proto-redir '=https' -L --fail --retry 3 --retry-delay 2 "$KIWIPANEL_AGENT_DOWNLOAD_URL" -o "$TMP_AGENT_BINARY"; then
         PrintRed "Failed to download KiwiPanel agent binary"
-        exit 1
+        return 1
     fi
 
     if [[ ! -s "$TMP_AGENT_BINARY" ]]; then
         PrintRed "Downloaded agent binary is empty"
-        exit 1
+        return 1
     fi
 
-    if [[ -n "${KIWIPANEL_AGENT_SHA256:-}" && "$KIWIPANEL_AGENT_SHA256" != "Not provided" ]]; then
-        if ! VerifySHA256Checksum "$TMP_AGENT_BINARY" "$KIWIPANEL_AGENT_SHA256" "KiwiPanel agent binary"; then
-            rm -f "$TMP_AGENT_BINARY"
-            exit 1
-        fi
-    else
-        PrintWarn "No KiwiPanel agent binary SHA-256 checksum available, skipping verification"
+    if ! VerifySHA256Checksum "$TMP_AGENT_BINARY" "$KIWIPANEL_AGENT_SHA256" "KiwiPanel agent binary"; then
+        rm -f "$TMP_AGENT_BINARY"
+        return 1
     fi
 
     PrintGreen "✓ All downloads complete"
@@ -748,7 +861,7 @@ function ExtractPackage() {
     local bin_dir="$INSTALL_DIR/bin"
     mkdir -p "$bin_dir"
 
-    PublishBinaryAtomically "$TMP_BINARY" "$bin_dir/kiwipanel" 750
+    PublishBinaryAtomically "$TMP_BINARY" "$bin_dir/kiwipanel" 755
     PrintGreen "✓ kiwipanel binary installed (${KIWIPANEL_ARCH})"
 
     PublishBinaryAtomically "$TMP_AGENT_BINARY" "$bin_dir/kiwipanel-agent" 755
@@ -849,30 +962,44 @@ function ShowVersion() {
     PrintInfo "==> Channel: $CHANNEL"
     PrintInfo "==> Latest version: $LATEST_VERSION"
 
-    # Select matching release (must match version, channel, os, and arch)
-    RELEASE=$(echo "$RELEASES_JSON" | jq -r \
+    # Select exactly one release record. One record is the source of all three
+    # direct URLs, checksums, version, OS, and architecture; duplicate matching
+    # records are ambiguous and fail closed rather than mixing their metadata.
+    if ! RELEASE=$(printf '%s' "$RELEASES_JSON" | jq -ce \
         --arg os "$OS" \
         --arg arch "$ARCH" \
         --arg ver "$LATEST_VERSION" \
         --arg channel "$CHANNEL" '
-        .releases[]
-        | select(.version==$ver and .channel==$channel and .os==$os and .arch==$arch)
-    ')
-
-    if [[ -z "$RELEASE" || "$RELEASE" == "null" ]]; then
-        PrintRed "No compatible release found for $OS/$ARCH (channel: $CHANNEL, version: $LATEST_VERSION)"
+        [.releases[] | select(.version == $ver and .channel == $channel and .os == $os and .arch == $arch)]
+        | if length == 1 then .[0] else empty end
+    '); then
+        PrintRed "No unique compatible release found for $OS/$ARCH (channel: $CHANNEL, version: $LATEST_VERSION)"
         PrintInfo "Available releases:"
         echo "$RELEASES_JSON" | jq -r '.releases[] | "\(.version) [\(.channel)] - \(.os)/\(.arch)"' 2>/dev/null || true
         exit 1
     fi
 
-    VERSION=$(echo "$RELEASE" | jq -r '.version')
-    URL=$(echo "$RELEASE" | jq -r '.download_url')
+    if ! ValidateSelectedReleaseIdentity "$RELEASE" "$LATEST_VERSION" "$OS" "$ARCH"; then
+        PrintRed "Release catalog has missing, non-string, or incompatible release identity metadata"
+        exit 1
+    fi
+
+    VERSION="$KIWIPANEL_VERSION"
+    URL="$KIWIPANEL_DOWNLOAD_URL"
     NOTES=$(echo "$RELEASE" | jq -r '.notes // "No release notes"')
     RELEASE_DATE=$(echo "$RELEASE" | jq -r '.release_date // "Unknown"')
-    SHA256=$(echo "$RELEASE" | jq -r '.sha256 // "Not provided"')
-    AGENT_SHA256=$(echo "$RELEASE" | jq -r '.agent_sha256 // "Not provided"')
-    SCAFFOLD_SHA256=$(echo "$RELEASE" | jq -r '.scaffold_sha256 // "Not provided"')
+    if ! SHA256="$(ReadRequiredReleaseSHA256 "$RELEASE" "sha256")"; then
+        PrintRed "KiwiPanel binary has a missing, non-string, or invalid SHA-256 checksum in the release catalog"
+        exit 1
+    fi
+    if ! AGENT_SHA256="$(ReadRequiredReleaseSHA256 "$RELEASE" "agent_sha256")"; then
+        PrintRed "KiwiPanel agent binary has a missing, non-string, or invalid SHA-256 checksum in the release catalog"
+        exit 1
+    fi
+    if ! SCAFFOLD_SHA256="$(ReadRequiredReleaseSHA256 "$RELEASE" "scaffold_sha256")"; then
+        PrintRed "Scaffold has a missing, non-string, or invalid SHA-256 checksum in the release catalog"
+        exit 1
+    fi
 
     # Write plain-text version pointer (authoritative)
     echo "$VERSION" > "$VERSION_FILE"
@@ -885,62 +1012,64 @@ function ShowVersion() {
     echo "Agent SHA256    : $AGENT_SHA256"
     echo "Scaffold SHA256 : $SCAFFOLD_SHA256"
     echo "Notes           : $NOTES"
-    LogInfo "Release selected: channel=$CHANNEL version=$VERSION date=$RELEASE_DATE arch=$ARCH binary_url=$URL scaffold_url=${base_url:-pending}/kiwipanel-scaffold.zip scaffold_sha256=$SCAFFOLD_SHA256 catalog_sha256=$catalog_sha256"
+    LogInfo "Release selected: channel=$CHANNEL version=$VERSION os=$OS arch=$ARCH binary_url=$KIWIPANEL_DOWNLOAD_URL agent_url=$KIWIPANEL_AGENT_DOWNLOAD_URL scaffold_url=$KIWIPANEL_SCAFFOLD_URL scaffold_sha256=$SCAFFOLD_SHA256 catalog_sha256=$catalog_sha256"
 
-    # Export for installer/update steps
-    export KIWIPANEL_VERSION="$VERSION"
-    export KIWIPANEL_DOWNLOAD_URL="$URL"
-    export KIWIPANEL_ARCH="$ARCH"
-    export KIWIPANEL_OS="$OS"
+    # Export the complete identity selected from one catalog record. Never derive
+    # companion asset URLs by substituting strings into another artifact URL.
+    export KIWIPANEL_VERSION
+    export KIWIPANEL_DOWNLOAD_URL
+    export KIWIPANEL_AGENT_DOWNLOAD_URL
+    export KIWIPANEL_SCAFFOLD_URL
+    export KIWIPANEL_ARCH
+    export KIWIPANEL_OS
     export KIWIPANEL_CHANNEL="$CHANNEL"
     export KIWIPANEL_SHA256="$SHA256"
     export KIWIPANEL_AGENT_SHA256="$AGENT_SHA256"
     export KIWIPANEL_SCAFFOLD_SHA256="$SCAFFOLD_SHA256"
-
-    # Derive agent and scaffold URLs from same release tag
-    # e.g. .../v0.4.2/kiwipanel-linux-amd64 → .../v0.4.2/kiwipanel-agent-linux-amd64
-    local base_url
-    base_url=$(dirname "$URL")
-    export KIWIPANEL_AGENT_DOWNLOAD_URL="${base_url}/kiwipanel-agent-linux-${ARCH}"
-    export KIWIPANEL_SCAFFOLD_URL="${base_url}/kiwipanel-scaffold.zip"
 }
-#------------------------------------------------------------Fixing ownership and permissions (because root created files beforehand
+#------------------------------------------------------------Fixing ownership and permissions
 function FixPermissions() {
-    PrintInfo "==> Setting proper ownership and permissions"
-    # Ownership
-    chown -R kiwipanel:kiwisecure "$INSTALL_DIR"
-    # Directories: rwx for owner+group
-    find "$INSTALL_DIR" -type d -exec chmod 750 {} \;
-    # Files: rw for owner+group
-    find "$INSTALL_DIR" -type f -exec chmod 640 {} \;
-    # Real binaries: executable by owner+group only
-    chmod 750 "$INSTALL_DIR/bin/kiwipanel"
-    # Agent binary (runs as root, needs to be executable)
+    PrintInfo "==> Setting root-controlled code and panel-owned mutable paths"
+
+    # Root executes the panel binary during update apply. Every code-path
+    # ancestor therefore remains root-controlled; never use a recursive panel
+    # chown on the installation root.
+    chown root:root "$INSTALL_DIR"
+    chmod 755 "$INSTALL_DIR"
+    for protected_dir in bin scripts systemd templates meta ssl; do
+        if [[ -d "$INSTALL_DIR/$protected_dir" ]]; then
+            chown -R root:root "$INSTALL_DIR/$protected_dir"
+            find "$INSTALL_DIR/$protected_dir" -type d -exec chmod 755 {} \;
+            find "$INSTALL_DIR/$protected_dir" -type f -exec chmod 644 {} \;
+        fi
+    done
+
+    mkdir -p "$INSTALL_DIR/bin"
+    chown root:root "$INSTALL_DIR/bin"
+    chmod 755 "$INSTALL_DIR/bin"
+    chown root:root "$INSTALL_DIR/bin/kiwipanel"
+    chmod 755 "$INSTALL_DIR/bin/kiwipanel"
     if [[ -f "$INSTALL_DIR/bin/kiwipanel-agent" ]]; then
+        chown root:root "$INSTALL_DIR/bin/kiwipanel-agent"
         chmod 755 "$INSTALL_DIR/bin/kiwipanel-agent"
     fi
-    # Ensure config directory is readable by kiwipanel user
-    if [[ -d "$INSTALL_DIR/config" ]]; then
-        chown -R kiwipanel:kiwisecure "$INSTALL_DIR/config"
-        chmod 750 "$INSTALL_DIR/config"
-        find "$INSTALL_DIR/config" -type f -exec chmod 640 {} \;
-    fi
+
+    # The panel may modify runtime data, configuration, and logs only.
+    for mutable_dir in config data logs; do
+        if [[ -d "$INSTALL_DIR/$mutable_dir" ]]; then
+            chown -R kiwipanel:kiwisecure "$INSTALL_DIR/$mutable_dir"
+            find "$INSTALL_DIR/$mutable_dir" -type d -exec chmod 750 {} \;
+            find "$INSTALL_DIR/$mutable_dir" -type f -exec chmod 640 {} \;
+        fi
+    done
 }
 
 function FixScriptPermissions() {
-    PrintInfo "==> Setting script permissions in /opt/kiwipanel/scripts"
     local SCRIPT_DIR="$INSTALL_DIR/scripts"
-
-    if [ -d "$SCRIPT_DIR" ]; then
-        # Make scripts executable by owner and group only
-        find "$SCRIPT_DIR" -type f -exec chmod 750 {} \;
-
-        # Change ownership to kiwipanel user and kiwisecure group
-        chown -R kiwipanel:kiwisecure "$SCRIPT_DIR"
-
-        PrintGreen "✓ Scripts are now executable by kiwipanel user"
-    else
-        PrintInfo "==> No scripts directory found at $SCRIPT_DIR"
+    if [[ -d "$SCRIPT_DIR" ]]; then
+        chown -R root:root "$SCRIPT_DIR"
+        find "$SCRIPT_DIR" -type d -exec chmod 755 {} \;
+        find "$SCRIPT_DIR" -type f -exec chmod 755 {} \;
     fi
 }
 
@@ -986,23 +1115,20 @@ function EnsureInstallStateDirectory() {
 
 function CreateSystemDirectories() {
     PrintInfo "==> Creating KiwiPanel system directories"
-    mkdir -p /etc/kiwipanel
-    mkdir -p /var/log/kiwipanel
-    mkdir -p /var/lib/kiwipanel/update
+    mkdir -p /etc/kiwipanel /var/log/kiwipanel /var/lib/kiwipanel /run/kiwipanel
     EnsureInstallStateDirectory
-    mkdir -p /run/kiwipanel
-    # The secrets parent must not be renameable by the unprivileged panel service.
-    # Group traversal lets the panel read explicitly group-readable configuration.
-    chown root:kiwisecure /etc/kiwipanel
-    chown -R kiwipanel:kiwisecure /var/log/kiwipanel
-    chown root:kiwisecure /var/lib/kiwipanel
-    chown -R kiwipanel:kiwisecure /var/lib/kiwipanel/update
-    chown root:kiwisecure /run/kiwipanel
-    chmod 750 /etc/kiwipanel
-    chmod 750 /var/log/kiwipanel
-    chmod 750 /var/lib/kiwipanel
-    chmod 750 /var/lib/kiwipanel/update
-    chmod 750 /run/kiwipanel
+
+    # Root is the sole writer of update state. Legacy panel-writable artifacts
+    # are deliberately not migrated into the trusted staging tree.
+    mkdir -p /var/lib/kiwipanel/update/trusted/stages
+    mkdir -p /var/lib/kiwipanel/panel-state
+    install -o root -g kiwisecure -m 0640 /dev/null /var/lib/kiwipanel/update/status.json
+
+    chown root:kiwisecure /etc/kiwipanel /var/lib/kiwipanel /var/lib/kiwipanel/update /run/kiwipanel
+    chown -R root:root /var/lib/kiwipanel/update/trusted
+    chown -R kiwipanel:kiwisecure /var/log/kiwipanel /var/lib/kiwipanel/panel-state
+    chmod 750 /etc/kiwipanel /var/log/kiwipanel /var/lib/kiwipanel /var/lib/kiwipanel/update /var/lib/kiwipanel/panel-state /run/kiwipanel
+    chmod 700 /var/lib/kiwipanel/update/trusted /var/lib/kiwipanel/update/trusted/stages
 }
 
 function FetchingInstallScripts(){
@@ -1011,9 +1137,15 @@ function FetchingInstallScripts(){
     CreateGroupAndUser
     CreateSystemDirectories
     MarkInstallationStarted
-    ShowVersion
-    DownloadPackage
-    ExtractPackage
+    if ! ShowVersion; then
+        return 1
+    fi
+    if ! DownloadPackage; then
+        return 1
+    fi
+    if ! ExtractPackage; then
+        return 1
+    fi
     FixPermissions
     FixScriptPermissions
 }
@@ -1385,9 +1517,9 @@ function InstallSystemdService() {
         return 1
     fi
 
-    if [[ -f "/etc/systemd/system/kiwipanel-update.service" ]]; then
-        systemctl enable kiwipanel-update.service >/dev/null || true
-    fi
+    # The apply service is static and must run only through the trusted path
+    # unit or explicit root maintenance, never automatically at boot.
+    systemctl disable kiwipanel-update.service >/dev/null 2>&1 || true
 
     # Enable path unit (it monitors for changes)
     if [[ -f "/etc/systemd/system/kiwipanel-update.path" ]]; then
@@ -1575,10 +1707,15 @@ function VerifyKiwipanel(){
             PrintWarn "$path ownership is $actual_owner (expected $expected_owner)"
         fi
     done <<'EOF'
-/opt/kiwipanel|kiwipanel:kiwisecure
+/opt/kiwipanel|root:root
+/opt/kiwipanel/bin|root:root
+/opt/kiwipanel/bin/kiwipanel|root:root
+/opt/kiwipanel/bin/kiwipanel-agent|root:root
 /etc/kiwipanel|root:kiwisecure
 /var/log/kiwipanel|kiwipanel:kiwisecure
 /var/lib/kiwipanel|root:kiwisecure
+/var/lib/kiwipanel/update|root:kiwisecure
+/var/lib/kiwipanel/update/trusted|root:root
 EOF
 }
 
