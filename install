@@ -1036,7 +1036,7 @@ function FixPermissions() {
     # chown on the installation root.
     chown root:root "$INSTALL_DIR"
     chmod 755 "$INSTALL_DIR"
-    for protected_dir in bin scripts systemd templates meta ssl; do
+    for protected_dir in bin scripts systemd templates ssl; do
         if [[ -d "$INSTALL_DIR/$protected_dir" ]]; then
             chown -R root:root "$INSTALL_DIR/$protected_dir"
             find "$INSTALL_DIR/$protected_dir" -type d -exec chmod 755 {} \;
@@ -1054,8 +1054,12 @@ function FixPermissions() {
         chmod 755 "$INSTALL_DIR/bin/kiwipanel-agent"
     fi
 
-    # The panel may modify runtime data, configuration, and logs only.
-    for mutable_dir in config data logs; do
+    # The panel may modify application configuration, data, logs, and runtime
+    # metadata. meta is intentionally mutable: it stores the passcode,
+    # terminal/support tokens, maintenance flag, and version state. It never
+    # belongs in the root execution trust chain; trusted update state remains
+    # under root-private /var/lib/kiwipanel/update/trusted.
+    for mutable_dir in config data logs meta; do
         if [[ -d "$INSTALL_DIR/$mutable_dir" ]]; then
             chown -R kiwipanel:kiwisecure "$INSTALL_DIR/$mutable_dir"
             find "$INSTALL_DIR/$mutable_dir" -type d -exec chmod 750 {} \;
@@ -1125,12 +1129,29 @@ function CreateSystemDirectories() {
     mkdir -p /var/lib/kiwipanel/uploads
     install -o root -g kiwisecure -m 0640 /dev/null /var/lib/kiwipanel/update/status.json
 
+    # Preserve a valid per-host CSRF key when upgrading from releases that kept
+    # runtime state below /opt. The old metadata tree is root-controlled after
+    # extraction, so migration is performed here as root before systemd starts
+    # the unprivileged panel. Never overwrite an already-migrated destination.
+    local legacy_csrf_key="$INSTALL_DIR/meta/csrf.key"
+    local csrf_key="/var/lib/kiwipanel/panel-state/csrf.key"
+    if [[ ! -e "$csrf_key" && -f "$legacy_csrf_key" && ! -L "$legacy_csrf_key" ]]; then
+        if [[ "$(stat -c '%s' -- "$legacy_csrf_key" 2>/dev/null || printf '0')" == "32" ]]; then
+            install -o kiwipanel -g kiwisecure -m 0600 -- "$legacy_csrf_key" "$csrf_key"
+            rm -f -- "$legacy_csrf_key"
+            PrintInfo "Migrated legacy CSRF key to panel runtime state"
+        else
+            PrintWarn "Legacy CSRF key has an invalid size; leaving it untouched and generating a new runtime key"
+        fi
+    fi
+
     chown root:kiwisecure /etc/kiwipanel /var/lib/kiwipanel /var/lib/kiwipanel/update /run/kiwipanel
     chown -R root:root /var/lib/kiwipanel/update/trusted
     chown -R kiwipanel:kiwisecure /var/log/kiwipanel /var/lib/kiwipanel/panel-state /var/lib/kiwipanel/uploads
     chmod 750 /etc/kiwipanel /var/log/kiwipanel /var/lib/kiwipanel /var/lib/kiwipanel/update /var/lib/kiwipanel/panel-state /run/kiwipanel
     chmod 770 /var/lib/kiwipanel/uploads
     chmod 700 /var/lib/kiwipanel/update/trusted /var/lib/kiwipanel/update/trusted/stages
+    [[ ! -f "$csrf_key" ]] || chmod 600 "$csrf_key"
 }
 
 function FetchingInstallScripts(){
@@ -1568,25 +1589,39 @@ function InstallSystemdService() {
     PrintInfo "==> Waiting for service to become ready..."
     local timeout=60
     local elapsed=0
+    local state=""
 
     while (( elapsed < timeout )); do
         if systemctl is-active --quiet kiwipanel.service; then
-            # Double check: wait 1s and check again to ensure it didn't crash immediately
+            # Double check: wait 1s and check again to ensure it didn't crash immediately.
             sleep 1
             if systemctl is-active --quiet kiwipanel.service; then
                 PrintGreen "✓ KiwiPanel service started successfully (${elapsed}s)"
                 return 0
             fi
         fi
+
+        # A terminal failed state cannot recover without another systemd start
+        # attempt. Report it immediately instead of hiding the cause behind a
+        # misleading 60-second timeout.
+        state="$(systemctl show --property=ActiveState --value kiwipanel.service 2>/dev/null || true)"
+        if [[ "$state" == "failed" ]]; then
+            PrintRed "KiwiPanel service entered failed state during startup"
+            systemctl status kiwipanel.service --no-pager || true
+            PrintInfo "Recent logs:"
+            journalctl -u kiwipanel.service -n 50 --no-pager || true
+            return 1
+        fi
+
         sleep 1
         ((elapsed++))
     done
 
     # Timeout reached
-    PrintWarn "⚠ Service did not start within ${timeout}s"
+    PrintWarn "⚠ Service did not become active within ${timeout}s (state=${state:-unknown})"
     systemctl status kiwipanel.service --no-pager || true
     PrintInfo "Recent logs:"
-    journalctl -u kiwipanel.service -n 15 --no-pager || true
+    journalctl -u kiwipanel.service -n 50 --no-pager || true
     return 1
 }
 

@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.9.10 (2026-09-17)
+
+- feat: setting boudary for opt/kiwipanel folder
 ## v0.9.09 (2026-09-17)
 
 - fixed test case as we update systemd file
