@@ -1122,12 +1122,14 @@ function CreateSystemDirectories() {
     # are deliberately not migrated into the trusted staging tree.
     mkdir -p /var/lib/kiwipanel/update/trusted/stages
     mkdir -p /var/lib/kiwipanel/panel-state
+    mkdir -p /var/lib/kiwipanel/uploads
     install -o root -g kiwisecure -m 0640 /dev/null /var/lib/kiwipanel/update/status.json
 
     chown root:kiwisecure /etc/kiwipanel /var/lib/kiwipanel /var/lib/kiwipanel/update /run/kiwipanel
     chown -R root:root /var/lib/kiwipanel/update/trusted
-    chown -R kiwipanel:kiwisecure /var/log/kiwipanel /var/lib/kiwipanel/panel-state
+    chown -R kiwipanel:kiwisecure /var/log/kiwipanel /var/lib/kiwipanel/panel-state /var/lib/kiwipanel/uploads
     chmod 750 /etc/kiwipanel /var/log/kiwipanel /var/lib/kiwipanel /var/lib/kiwipanel/update /var/lib/kiwipanel/panel-state /run/kiwipanel
+    chmod 770 /var/lib/kiwipanel/uploads
     chmod 700 /var/lib/kiwipanel/update/trusted /var/lib/kiwipanel/update/trusted/stages
 }
 
@@ -1716,6 +1718,8 @@ function VerifyKiwipanel(){
 /var/lib/kiwipanel|root:kiwisecure
 /var/lib/kiwipanel/update|root:kiwisecure
 /var/lib/kiwipanel/update/trusted|root:root
+/var/lib/kiwipanel/uploads|kiwipanel:kiwisecure
+/var/lib/kiwipanel/panel-state|kiwipanel:kiwisecure
 EOF
 }
 

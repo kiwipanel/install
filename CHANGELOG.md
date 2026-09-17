@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.09 (2026-09-17)
+
+- fixed test case as we update systemd file
+- fixed: installing error relating to systemd
 ## v0.9.08 (2026-09-17)
 
 - feat: security - ensuring the update flow safely
