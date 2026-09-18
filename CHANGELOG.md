@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.9.14 (2026-09-18)
+
+- fixed: auto update
 ## v0.9.13 (2026-09-18)
 
 - Merge pull request #165 from kiwipanel/release/v0.9
