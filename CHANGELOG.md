@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.13 (2026-09-18)
+
+- Merge pull request #165 from kiwipanel/release/v0.9
+- fixed: cannot update given the wrong json schema
 ## v0.9.11 (2026-09-18)
 
 - feat: validating zip file when extracting to prevent malicious if any
