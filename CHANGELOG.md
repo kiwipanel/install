@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.9.15 (2026-09-18)
+
+- fixed the health check showing correct process name
 ## v0.9.14 (2026-09-18)
 
 - fixed: auto update
