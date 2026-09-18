@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.11 (2026-09-18)
+
+- feat: validating zip file when extracting to prevent malicious if any
+- feat: correcting the status when checking the port, true if they are occupied with proper process
+- fixed: checking owner of opt/kiwipanel permission
+- fixed - wrapper CLI using root instead of kiwipanel user
 ## v0.9.10 (2026-09-17)
 
 - feat: setting boudary for opt/kiwipanel folder

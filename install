@@ -750,6 +750,91 @@ function VerifySHA256Checksum() {
     PrintGreen "✓ $label checksum verified"
 }
 
+function ValidateArchiveStructure() {
+    local archive_path="$1"
+    local max_depth="${2:-10}"
+    local entries
+    local entry_count=0
+    local filename
+    local path_component
+    local depth
+
+    LogInfo "Validating archive structure: $archive_path"
+
+    # -Z1 asks Info-ZIP for one exact entry name per line. Unlike parsing
+    # `unzip -l`, this preserves spaces and does not depend on display columns.
+    if ! entries=$(unzip -Z1 "$archive_path" 2>/dev/null); then
+        PrintRed "Archive validation failed: unable to list archive entries"
+        LogError "Archive validation failed: unable to list entries: $archive_path"
+        return 1
+    fi
+
+    while IFS= read -r filename; do
+        [[ -z "$filename" ]] && continue
+        ((entry_count += 1))
+
+        # Check absolute paths before the required-prefix check so diagnostics
+        # identify the exact unsafe condition. Backslashes are forbidden as
+        # well, avoiding Windows-path ambiguity in ZIP consumers.
+        if [[ "$filename" == /* || "$filename" =~ ^[[:alpha:]]:\\ ]]; then
+            PrintRed "Archive validation failed: absolute path detected"
+            PrintRed "  Entry: $filename"
+            LogError "Archive validation failed: absolute path: $filename"
+            return 1
+        fi
+        if [[ "$filename" == *\\* ]]; then
+            PrintRed "Archive validation failed: backslash in path"
+            PrintRed "  Entry: $filename"
+            LogError "Archive validation failed: backslash in path: $filename"
+            return 1
+        fi
+
+        # Reject any complete dot or dot-dot component. This prevents both
+        # traversal and ambiguous paths that normalize differently by tool.
+        local -a path_components=()
+        IFS='/' read -r -a path_components <<< "$filename"
+        for path_component in "${path_components[@]}"; do
+            if [[ "$path_component" == "." || "$path_component" == ".." ]]; then
+                PrintRed "Archive validation failed: path traversal detected"
+                PrintRed "  Entry: $filename"
+                LogError "Archive validation failed: unsafe path component: $filename"
+                return 1
+            fi
+        done
+
+        # Extraction targets /opt/, so every entry must be the top-level
+        # kiwipanel directory or one of its descendants.
+        if [[ "$filename" != "kiwipanel" && "$filename" != "kiwipanel/" && "$filename" != kiwipanel/* ]]; then
+            PrintRed "Archive validation failed: entry outside kiwipanel/ directory"
+            PrintRed "  Entry: $filename"
+            LogError "Archive validation failed: entry outside kiwipanel/: $filename"
+            return 1
+        fi
+
+        # Bound path depth to reject pathological archive structures. Exclude a
+        # directory's optional trailing slash from the component count.
+        depth="${#path_components[@]}"
+        if [[ -z "${path_components[depth-1]}" ]]; then
+            ((depth -= 1))
+        fi
+        if (( depth > max_depth )); then
+            PrintRed "Archive validation failed: excessive nesting depth ($depth > $max_depth)"
+            PrintRed "  Entry: $filename"
+            LogError "Archive validation failed: excessive depth ($depth > $max_depth): $filename"
+            return 1
+        fi
+    done <<< "$entries"
+
+    if (( entry_count == 0 )); then
+        PrintRed "Archive validation failed: no entries found"
+        LogError "Archive validation failed: empty archive"
+        return 1
+    fi
+
+    LogInfo "Archive validation passed ($entry_count entries)"
+    PrintGreen "✓ Archive structure validated ($entry_count entries)"
+}
+
 function DownloadPackage() {
     # The complete selected-record identity and all expected hashes must be
     # present and valid before any artifact download. Return, rather than relying
@@ -775,6 +860,14 @@ function DownloadPackage() {
 
     if ! VerifySHA256Checksum "$TMP_ZIP" "$KIWIPANEL_SCAFFOLD_SHA256" "Scaffold"; then
         rm -f "$TMP_ZIP"
+        return 1
+    fi
+
+    # Validate archive structure before extraction (security hardening)
+    if ! ValidateArchiveStructure "$TMP_ZIP"; then
+        rm -f "$TMP_ZIP"
+        PrintRed "Scaffold archive failed security validation"
+        LogError "Scaffold archive validation failed: $TMP_ZIP"
         return 1
     fi
 
@@ -1036,7 +1129,7 @@ function FixPermissions() {
     # chown on the installation root.
     chown root:root "$INSTALL_DIR"
     chmod 755 "$INSTALL_DIR"
-    for protected_dir in bin scripts systemd templates ssl; do
+    for protected_dir in bin scripts systemd templates; do
         if [[ -d "$INSTALL_DIR/$protected_dir" ]]; then
             chown -R root:root "$INSTALL_DIR/$protected_dir"
             find "$INSTALL_DIR/$protected_dir" -type d -exec chmod 755 {} \;
@@ -1062,10 +1155,23 @@ function FixPermissions() {
     for mutable_dir in config data logs meta; do
         if [[ -d "$INSTALL_DIR/$mutable_dir" ]]; then
             chown -R kiwipanel:kiwisecure "$INSTALL_DIR/$mutable_dir"
-            find "$INSTALL_DIR/$mutable_dir" -type d -exec chmod 750 {} \;
+            find "$INSTALL_DIR/$mutable_dir" -type d -exec chmod 750  \;
             find "$INSTALL_DIR/$mutable_dir" -type f -exec chmod 640 {} \;
         fi
     done
+
+    # SSL certificates: panel needs to read them (kiwipanel:kiwisecure ownership).
+    # The directory structure is root-controlled but the cert/key files themselves
+    # are panel-readable. The SSL generation script sets ownership; we preserve it.
+    if [[ -d "$INSTALL_DIR/ssl" ]]; then
+        chown -R root:root "$INSTALL_DIR/ssl"
+        find "$INSTALL_DIR/ssl" -type d -exec chmod 755 {} \;
+        # Restore panel ownership on actual certificate/key files
+        find "$INSTALL_DIR/ssl" -type f \( -name "*.crt" -o -name "*.key" -o -name "*.pem" \) \
+            -exec chown kiwipanel:kiwisecure {} \;
+        find "$INSTALL_DIR/ssl" -type f -name "*.key" -exec chmod 600 {} \;
+        find "$INSTALL_DIR/ssl" -type f ! -name "*.key" -exec chmod 644 {} \;
+    fi
 }
 
 function FixScriptPermissions() {
