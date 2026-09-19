@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.16 (2026-09-19)
+
+- fixed: checking port
+- feat: added security boundary check
 ## v0.9.15 (2026-09-18)
 
 - fixed the health check showing correct process name
