@@ -21,6 +21,7 @@
 # Parse before root checks, traps, logging, locks or helper loading.
 INSTALL_STEPS=(base_system swap firewall ssl mariadb config panel ols finalize)
 VERIFY_ONLY=0
+READINESS_CHECK=0
 STEPS_FILTER=""
 FULL_INSTALL=1
 for arg in "$@"; do
@@ -30,6 +31,11 @@ for arg in "$@"; do
                 printf 'Invalid arguments: duplicate --verify-only\n' >&2; exit 2
             fi
             VERIFY_ONLY=1 ;;
+        --readiness-check)
+            if [[ "$READINESS_CHECK" == 1 ]]; then
+                printf 'Invalid arguments: duplicate --readiness-check\n' >&2; exit 2
+            fi
+            READINESS_CHECK=1 ;;
         --steps=*)
             if [[ -n "$STEPS_FILTER" || -z "${arg#--steps=}" ]]; then
                 printf 'Invalid arguments: empty or duplicate --steps\n' >&2; exit 2
@@ -38,6 +44,16 @@ for arg in "$@"; do
         *) printf 'Invalid argument: %s\n' "$arg" >&2; exit 2 ;;
     esac
 done
+if [[ "$READINESS_CHECK" == 1 ]]; then
+    if [[ "$VERIFY_ONLY" == 1 || -n "$STEPS_FILTER" ]]; then
+        printf 'Invalid arguments: --readiness-check cannot be combined with --verify-only or --steps\n' >&2
+        exit 2
+    fi
+    # Delegate before prerequisites, root checks, traps, logs or helper loading.
+    # Preserve the installed CLI output and status; never bootstrap or repair it.
+    kiwipanel panel readiness
+    exit $?
+fi
 if [[ -n "$STEPS_FILTER" ]]; then
     remaining="$STEPS_FILTER"
     seen=","
@@ -2278,6 +2294,15 @@ function main() {
     run_step "finalize"     step_finalize     verify_finalize
 
     if [[ "$FULL_INSTALL" == 1 ]]; then
+        # Finalization (including admin creation) has completed. A failed
+        # readiness probe is not an installation-step failure: do not retry,
+        # repair, roll back, or remove the completed-step markers.
+        local readiness_status=0
+        kiwipanel panel readiness || readiness_status=$?
+        if [[ "$readiness_status" != 0 ]]; then
+            PrintRed "Installation steps completed, but readiness failed (exit $readiness_status). No automatic repair or rollback was attempted."
+            return "$readiness_status"
+        fi
         SuccessMessage
     else
         PrintGreen "Selected steps completed: $STEPS_FILTER. Partial installation; full installation is not marked complete."

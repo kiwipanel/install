@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.9.17 (2026-09-20)
+
+- feat: readiness to upgrade
+- refrator: update testing cases for instaltion validation
+- feat: add test case for instalation validation
+- fixed golangci
+- feat: remove lint-go in CircleCI
+- fixed formating cirlceci
+- feat: removing ss that stop running on circleCI
+- fixed circleci add more time eout
+- fixed circleCI
+- feat: add more work-flow in circleci
 ## v0.9.16 (2026-09-19)
 
 - fixed: checking port
