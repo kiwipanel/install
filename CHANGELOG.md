@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.18 (2026-09-22)
+
+- feat: signed binary when updating, a must for security
+- fixed: updating does not show complete button when done
 ## v0.9.17 (2026-09-20)
 
 - feat: readiness to upgrade
