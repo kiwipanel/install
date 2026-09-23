@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.19 (2026-09-23)
+
+- fixed: prevent testing fail on circleCI relating to provisioning
+- fixed: test case requires root will fail
+- feat: added health -> check provenance
 ## v0.9.18 (2026-09-22)
 
 - feat: signed binary when updating, a must for security
