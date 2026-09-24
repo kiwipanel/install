@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.9.20 (2026-09-24)
+
+- feat: update boundary verification
 ## v0.9.19 (2026-09-23)
 
 - fixed: prevent testing fail on circleCI relating to provisioning
