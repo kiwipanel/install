@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.21 (2026-09-26)
+
+- feat: check ssl orphans for health check
+- fixed test case regarding mariadb
+- feat: authenticate mariadb
+- feat: added to health checking info about EOL of software such as php or mariadb
+- feat: implementing the final state showing in the update
+- feat: added to the health checking info about Release Verfification
 ## v0.9.20 (2026-09-24)
 
 - feat: update boundary verification
