@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.22 (2026-09-27)
+
+- feat: pin mariadb from updating
+- fixed: health page does not show icon for mariadb
+- fixed: showing the verification badge in the update page
 ## v0.9.21 (2026-09-26)
 
 - feat: check ssl orphans for health check
