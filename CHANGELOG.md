@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.9.26 (2026-09-28)
+
+- fixed mariadb
 ## v0.9.22 (2026-09-27)
 
 - feat: pin mariadb from updating

@@ -1171,7 +1171,7 @@ function FixPermissions() {
     for mutable_dir in config data logs meta; do
         if [[ -d "$INSTALL_DIR/$mutable_dir" ]]; then
             chown -R kiwipanel:kiwisecure "$INSTALL_DIR/$mutable_dir"
-            find "$INSTALL_DIR/$mutable_dir" -type d -exec chmod 750  \;
+            find "$INSTALL_DIR/$mutable_dir" -type d -exec chmod 750 {} \;
             find "$INSTALL_DIR/$mutable_dir" -type f -exec chmod 640 {} \;
         fi
     done
@@ -1939,6 +1939,7 @@ function InstallLitespeedServer() {
     GuardOlsServiceDebianUbuntu
     InstallingOpenLiteSpeed
     InstallingLiteSpeedPhp
+    ReconcileLSPHPPin
     EnsureAdminPassword
     SetupKiwiwebUser
     ConfigureLswsListener
@@ -2235,6 +2236,8 @@ step_ols() {
     VerifyLswsStopped
     UnguardOpenLiteSpeedService
     StartLswsOnce
+    # Pin LSPHP packages even when step is skipped (convergence for existing hosts)
+    ReconcileLSPHPPin
 }
 
 verify_ols() {
