@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.27 (2026-09-29)
+
+- feat: update lsphp manually
+- feat: fixed correct status when updating
 ## v0.9.26 (2026-09-28)
 
 - fixed mariadb
