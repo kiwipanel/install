@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.9.28 (2026-09-30)
+
+- feat: update php manually
 ## v0.9.27 (2026-09-29)
 
 - feat: update lsphp manually
