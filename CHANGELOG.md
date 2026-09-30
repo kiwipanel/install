@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.9.30 (2026-09-30)
+
+- fixed: wrong path of lsphp
 ## v0.9.29 (2026-09-30)
 
 - fixed testing, color schema on update page
