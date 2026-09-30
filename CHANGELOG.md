@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.9.29 (2026-09-30)
+
+- fixed testing, color schema on update page
 ## v0.9.28 (2026-09-30)
 
 - feat: update php manually
