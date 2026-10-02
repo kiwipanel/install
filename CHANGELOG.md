@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.31 (2026-10-02)
+
+- fixed golangci
+- feat: updating lsphp ui
 ## v0.9.30 (2026-09-30)
 
 - fixed: wrong path of lsphp
