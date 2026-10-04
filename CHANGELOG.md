@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.32 (2026-10-04)
+
+- feat: pinning openlitespeed phrase 1
+- fixed missing testing file of mariadb
+- fixed: updating lsphp manually
 ## v0.9.31 (2026-10-02)
 
 - fixed golangci
