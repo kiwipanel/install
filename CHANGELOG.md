@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.33 (2026-10-07)
+
+- fixed: test case on circleci
+- fixed: mariadb expose password
+- feat: MariaDB management module with agent-backed privileged administration
+- feat: not implemeting pinning ols
 ## v0.9.32 (2026-10-04)
 
 - feat: pinning openlitespeed phrase 1

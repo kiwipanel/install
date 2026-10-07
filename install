@@ -2238,8 +2238,8 @@ step_ols() {
     StartLswsOnce
     # Pin LSPHP packages even when step is skipped (convergence for existing hosts)
     ReconcileLSPHPPin
-    # Pin OpenLiteSpeed packages (convergence for existing hosts)
-    ReconcileOLSPin
+    # OpenLiteSpeed package pinning removed (2026-10-05)
+    # Decision: OLS updates through OS package manager; KiwiPanel manages LSPHP + MariaDB only
 }
 
 verify_ols() {
