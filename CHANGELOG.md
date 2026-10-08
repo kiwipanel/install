@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.9.34 (2026-10-08)
+
+- feat: force circleCI to use particular sqlc lib version
+- feat: tweaking database manager UI
+- fixed diagnostic test on CircleCI
+- fixed: cannot create new database given frontend cause
+- feat: re-design layout for mariadb pages
 ## v0.9.33 (2026-10-07)
 
 - fixed: test case on circleci
