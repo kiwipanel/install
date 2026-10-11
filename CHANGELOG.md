@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.35 (2026-10-11)
+
+- fixed: showing proper steps when provisioning website
+- fixed testing race on circleci
+- feat: creating database when provisioning website
+- feat: tweak mariadb ui
 ## v0.9.34 (2026-10-08)
 
 - feat: force circleCI to use particular sqlc lib version
