@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.9.36 (2026-10-12)
+
+- feat restore database
+- feat: delete a database
+- feat: website-database relationship
+- feat: showing relation between database and website
+- docs: record live VPS verification of database-at-provision
 ## v0.9.35 (2026-10-11)
 
 - fixed: showing proper steps when provisioning website
