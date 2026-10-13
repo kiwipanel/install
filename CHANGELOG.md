@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.37 (2026-10-13)
+
+- feat: website restore using old database
+- feat: restore db when deleting website
 ## v0.9.36 (2026-10-12)
 
 - feat restore database
