@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.38 (2026-10-15)
+
+- Schedule backup
+- restore database cross websites
 ## v0.9.37 (2026-10-13)
 
 - feat: website restore using old database
