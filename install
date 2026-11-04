@@ -243,6 +243,49 @@ PrintRed() {
 }
 
 
+# apt-get waits for another package manager ###########################
+# A fresh Debian/Ubuntu VPS runs unattended-upgrades within minutes of its
+# first boot, and apt-get refuses at once while another run holds a lock: the
+# Ubuntu 24.04 install of 2026-10-28 stopped at the OpenLiteSpeed step with
+# "Could not get lock /var/lib/dpkg/lock-frontend" (work/0_install_error.md).
+# apt's DPkg::Lock::Timeout makes `apt-get install` wait for the dpkg lock, but
+# apt 2.8 does not apply it to the package-list lock `apt-get update` takes
+# (Ubuntu 24.04, 2026-10-29: exit 100 at once with the timeout set). So a run
+# refused for a lock is run again, for at most APT_LOCK_WAIT_SECONDS in all.
+# apt refuses for a lock before it changes anything, so a second run is safe.
+APT_LOCK_WAIT_SECONDS=900
+function AptGetWaitingForLocks() {
+    local deadline=$(( SECONDS + APT_LOCK_WAIT_SECONDS ))
+    local errors status remaining announced=-1
+    errors="$(mktemp /tmp/kiwipanel-apt.XXXXXX)" || return 1
+    while :; do
+        remaining=$(( deadline - SECONDS ))
+        (( remaining > 0 )) || remaining=1
+        status=0
+        command apt-get -o DPkg::Lock::Timeout="$remaining" "$@" 2>"$errors" || status=$?
+        cat "$errors" >&2
+        if (( status != 100 || SECONDS >= deadline )) \
+            || ! grep -Eq 'Could not get lock|Unable to acquire the dpkg frontend lock|Unable to lock directory' "$errors"; then
+            break
+        fi
+        if (( announced < 0 || SECONDS - announced >= 60 )); then
+            printf 'Waiting for another package manager to finish (%s)...\n' \
+                "$(grep -m1 -o 'held by process [0-9]* ([^)]*)' "$errors" || echo 'a lock is held')" >&2
+            announced=$SECONDS
+        fi
+        sleep 5
+    done
+    rm -f "$errors"
+    return "$status"
+}
+# Every apt-get this installer and the scripts it sources run (base, firewall,
+# lsws, the firewall's "$package_manager" too) is this function. Defined only
+# where the real apt-get exists: `command -v apt-get` decides the package
+# manager (DetectFail2BanPackageManager) and must stay false on RHEL.
+if type -P apt-get >/dev/null 2>&1; then
+    apt-get() { AptGetWaitingForLocks "$@"; }
+fi
+
 DEBUG=${DEBUG:-0}
 AUTO_UPGRADE=${AUTO_UPGRADE:-0}
 
@@ -445,13 +488,6 @@ function ClassifyKiwipanelInstallation() {
             return 0
         fi
 
-        # Durable completed-install evidence always wins. Step markers are
-        # resumable only while no completed installation can be observed.
-        if HasDurableKiwipanelEvidence; then
-            printf '%s\n' "installed"
-            return 0
-        fi
-
         [[ -f "$state_dir/.installing" ]] && started=1
         shopt -s nullglob
         for marker in "$state_dir"/*.done "$state_dir"/*.done.tmp; do
@@ -466,7 +502,27 @@ function ClassifyKiwipanelInstallation() {
         done
         shopt -u nullglob
 
-        if [[ -f "$state_dir/finalize.done" ]]; then
+        if [[ -e "$state_dir/finalize.done" || -L "$state_dir/finalize.done" ]]; then
+            printf '%s\n' "installed"
+            return 0
+        fi
+
+        # Durable evidence (binaries, config, unit, a running panel) means
+        # installed, with one exception: an installation this installer
+        # started that stopped between its panel step, which creates that
+        # evidence, and finalize. It is proved by the start marker, known step
+        # markers only, no finalize.done, and no completion marker: only a
+        # verified finalize leads to meta/.installed (MarkInstallationComplete). Before
+        # 2026-10-29 the panel step wrote it, so every older installation that
+        # got that far carries it and still counts as installed. An Ubuntu
+        # 24.04 install stopped at the ols step (the package lock was held)
+        # could otherwise never be resumed.
+        if HasDurableKiwipanelEvidence; then
+            if (( started == 1 && unknown == 0 )) \
+                && [[ ! -e "$INSTALL_ROOT/meta/.installed" && ! -L "$INSTALL_ROOT/meta/.installed" ]]; then
+                printf '%s\n' "partial"
+                return 0
+            fi
             printf '%s\n' "installed"
             return 0
         fi
@@ -572,8 +628,8 @@ function PreflightChecks() {
     if [ ${#missing[@]} -gt 0 ]; then
         PrintInfo "==> Installing missing dependencies: ${missing[*]}"
         if command -v apt >/dev/null 2>&1; then
-            apt update -y
-            apt install -y "${missing[@]}"
+            apt-get update -y
+            apt-get install -y "${missing[@]}"
         elif command -v dnf >/dev/null 2>&1; then
             dnf install -y "${missing[@]}"
         elif command -v yum >/dev/null 2>&1; then
@@ -958,7 +1014,17 @@ function PublishBinaryAtomically() {
 function ExtractPackage() {
     # 1. Extract scaffold (scripts, config, systemd, templates)
     PrintInfo "==> Extracting scaffold"
-    unzip -oq "$TMP_ZIP" -d /opt/ || {
+    # The scaffold's data/kiwipanel.db is the empty template for a fresh
+    # install. When an interrupted install resumes, the database already
+    # exists and, once the panel step has run, the panel has it open: writing
+    # the template over it would leave the panel's WAL describing another
+    # file. Keep the existing database.
+    local keep_database=()
+    if [[ -e "$INSTALL_DIR/data/kiwipanel.db" ]]; then
+        keep_database=(-x "kiwipanel/data/kiwipanel.db")
+        PrintInfo "==> Keeping the existing database (resuming an interrupted install)"
+    fi
+    unzip -oq "$TMP_ZIP" -d /opt/ ${keep_database[@]+"${keep_database[@]}"} || {
         PrintRed "Failed to extract KiwiPanel scaffold"
         exit 1
     }
@@ -1147,9 +1213,18 @@ function FixPermissions() {
     chmod 755 "$INSTALL_DIR"
     for protected_dir in bin scripts systemd templates; do
         if [[ -d "$INSTALL_DIR/$protected_dir" ]]; then
+            # Scripts stay executable at every moment: the panel and the agent
+            # run the platform adapter directly. Until 2026-10-31 this set them
+            # 644 and FixScriptPermissions set them back to 755 on the next
+            # line, so a run stopped in between (set -e) left the adapter
+            # unrunnable: /updates/php "permission denied" on the AlmaLinux VPS.
+            local file_mode=644
+            if [[ "$protected_dir" == "scripts" ]]; then
+                file_mode=755
+            fi
             chown -R root:root "$INSTALL_DIR/$protected_dir"
             find "$INSTALL_DIR/$protected_dir" -type d -exec chmod 755 {} \;
-            find "$INSTALL_DIR/$protected_dir" -type f -exec chmod 644 {} \;
+            find "$INSTALL_DIR/$protected_dir" -type f -exec chmod "$file_mode" {} \;
         fi
     done
 
@@ -1539,13 +1614,19 @@ function GenerateThePasscode() {
     chown kiwipanel:kiwisecure "$PASSCODE_FILE"
     chmod 640 "$PASSCODE_FILE"
 
-    if [[ "$FULL_INSTALL" == 1 ]]; then
-        touch "$INSTALL_MARKER"
-        chown kiwipanel:kiwisecure "$INSTALL_MARKER"
-        chmod 640 "$INSTALL_MARKER"
-    fi
-
     PrintGreen "✔ New passcode generated."
+}
+
+# meta/.installed means "this installation finished": the classifier refuses
+# to run again once it exists. Written by main only after finalize of a full
+# install ran and passed its verification, never by a step, so an install
+# interrupted before that point can resume (ClassifyKiwipanelInstallation).
+function MarkInstallationComplete() {
+    [[ "$FULL_INSTALL" == 1 ]] || return 0
+    local marker="/opt/kiwipanel/meta/.installed"
+    touch "$marker"
+    chown kiwipanel:kiwisecure "$marker"
+    chmod 640 "$marker"
 }
 
 #------------------------------------------------------------Generate terminal token for global terminal access
@@ -1891,6 +1972,7 @@ function SuccessMessage() {
     echo "$(tput setaf 2)================================Install KiwiPanel Done!==============================$(tput sgr0)"
     echo ""
     echo "   Login at : https://$IPADDRESS:$KIWIPANEL_PORT/$kiwipanel_passcode"
+    echo "   (For a trusted address without a port, set one in Settings > Server > Identity > Panel address.)"
     echo "   User:     ${admin_user}"
     echo "   Password: ${admin_pass}"
     echo ""
@@ -1939,6 +2021,7 @@ function InstallLitespeedServer() {
     GuardOlsServiceDebianUbuntu
     InstallingOpenLiteSpeed
     InstallingLiteSpeedPhp
+    EnsureDevNullUsable
     ReconcileLSPHPPin
     EnsureAdminPassword
     SetupKiwiwebUser
@@ -2299,6 +2382,9 @@ function main() {
     run_step "finalize"     step_finalize     verify_finalize
 
     if [[ "$FULL_INSTALL" == 1 ]]; then
+        # finalize ran and passed its verification (run_step exits otherwise):
+        # only now is the installation complete.
+        MarkInstallationComplete
         # Finalization (including admin creation) has completed. A failed
         # readiness probe is not an installation-step failure: do not retry,
         # repair, roll back, or remove the completed-step markers.

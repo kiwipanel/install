@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.9.40 (2026-11-04)
+
+- fixed test fail mariadb on debian fammily
 ## v0.9.38 (2026-10-15)
 
 - Schedule backup
