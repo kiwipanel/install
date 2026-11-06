@@ -181,6 +181,21 @@ export LC_ALL="${LC_ALL:-en_US.UTF-8}"
 # Stop on error
 set -euo pipefail
 
+# Every standard directory is on the installer's PATH, whatever the caller's
+# was. `sudo bash install` runs under sudo's secure_path, which on EL systems is
+# /sbin:/bin:/usr/sbin:/usr/bin: the kiwipanel wrapper the panel step writes to
+# /usr/local/bin was then "command not found" at the readiness probe
+# (AlmaLinux 9, 2026-11-04), after a complete installation. The caller's
+# entries stay first (the tests run the installer with a PATH of stubs).
+for _dir in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do
+    case ":${PATH:-}:" in
+        *":${_dir}:"*) ;;
+        *) PATH="${PATH:+${PATH}:}${_dir}" ;;
+    esac
+done
+unset _dir
+export PATH
+
 # Create log file
 KIWIPANEL_DIR="/opt/kiwipanel"
 LOG_DIR="$KIWIPANEL_DIR/logs"
@@ -2307,6 +2322,7 @@ step_panel() { InstallKiwipanel; }
 
 verify_panel() {
     ensure_file_exists "/etc/systemd/system/kiwipanel.service" || return 1
+    ensure_file_exists "/usr/local/bin/kiwipanel" || return 1
     ensure_file_exists "/opt/kiwipanel/meta/passcode" || return 1
     ensure_file_exists "/opt/kiwipanel/meta/terminal_token" || return 1
     ensure_service_active "kiwipanel" || return 1
@@ -2328,8 +2344,9 @@ step_ols() {
 verify_ols() {
     # OLS installed?
     ensure_dir_exists "/usr/local/lsws" || return 1
-    # Service active?
-    ensure_service_active "lsws" || ensure_service_active "lshttpd" || return 1
+    # Service active under the name everything else uses? (`lsws` is an
+    # alias the installer guarantees: EnsureLswsAlias in scripts/lsws.)
+    ensure_service_active "lsws" || return 1
     # Port 80 responding?
     ss -tlnp 2>/dev/null | grep -q ':80 ' || return 1
     return 0

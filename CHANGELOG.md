@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.41 (2026-11-06)
+
+- feat: modal showing hints when editing wp-config, might be blocked by cloudflare
+- feat: replace confirm popup~which is ugly obviously~by Tabler's modal
+- feat: change the agent to Kiwipanel-version when downloading wordpress zip
+- fixed - added full path for commmand when install on almmalinux
 ## v0.9.40 (2026-11-04)
 
 - fixed test fail mariadb on debian fammily
