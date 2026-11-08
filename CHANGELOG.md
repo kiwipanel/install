@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.42 (2026-11-08)
+
+- feat: wordpress toolkit
+- feat: installing php85 by default for fresh vps
 ## v0.9.41 (2026-11-06)
 
 - feat: modal showing hints when editing wp-config, might be blocked by cloudflare
