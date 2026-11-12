@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.9.43 (2026-11-12)
+
+- Feat: remove the old database, let schemma.sql the source of truth
+- feat: wordpress-toolkit clone and stagging page
+- fixed : creating first client need email
+- feat: tweak wordy in backup-offsite
+- feat: completing drilling on alamlinux regarding wordpress toolkit-phrase 1
 ## v0.9.42 (2026-11-08)
 
 - feat: wordpress toolkit

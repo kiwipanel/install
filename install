@@ -1029,11 +1029,11 @@ function PublishBinaryAtomically() {
 function ExtractPackage() {
     # 1. Extract scaffold (scripts, config, systemd, templates)
     PrintInfo "==> Extracting scaffold"
-    # The scaffold's data/kiwipanel.db is the empty template for a fresh
-    # install. When an interrupted install resumes, the database already
-    # exists and, once the panel step has run, the panel has it open: writing
-    # the template over it would leave the panel's WAL describing another
-    # file. Keep the existing database.
+    # The scaffold ships no database since 2026-11-12 (the panel builds it at
+    # first start from the schema in its binary). An older release's scaffold
+    # still carries an empty template: when an interrupted install resumes,
+    # the database already exists and the panel may have it open, so never
+    # write a template over it (its WAL would describe another file).
     local keep_database=()
     if [[ -e "$INSTALL_DIR/data/kiwipanel.db" ]]; then
         keep_database=(-x "kiwipanel/data/kiwipanel.db")
@@ -1258,12 +1258,17 @@ function FixPermissions() {
     # terminal/support tokens, maintenance flag, and version state. It never
     # belongs in the root execution trust chain; trusted update state remains
     # under root-private /var/lib/kiwipanel/update/trusted.
+    #
+    # Each one is in kiwipanel.service's ReadWritePaths, so it must exist
+    # before systemd first starts the panel (a missing one is 226/NAMESPACE).
+    # The scaffold ships no database since 2026-11-12, so the zip has no
+    # data/ folder: create every one here, never rely on the zip for it. The
+    # panel then builds data/kiwipanel.db from the schema in its binary.
     for mutable_dir in config data logs meta; do
-        if [[ -d "$INSTALL_DIR/$mutable_dir" ]]; then
-            chown -R kiwipanel:kiwisecure "$INSTALL_DIR/$mutable_dir"
-            find "$INSTALL_DIR/$mutable_dir" -type d -exec chmod 750 {} \;
-            find "$INSTALL_DIR/$mutable_dir" -type f -exec chmod 640 {} \;
-        fi
+        mkdir -p "$INSTALL_DIR/$mutable_dir"
+        chown -R kiwipanel:kiwisecure "$INSTALL_DIR/$mutable_dir"
+        find "$INSTALL_DIR/$mutable_dir" -type d -exec chmod 750 {} \;
+        find "$INSTALL_DIR/$mutable_dir" -type f -exec chmod 640 {} \;
     done
 
     # SSL certificates: panel needs to read them (kiwipanel:kiwisecure ownership).
