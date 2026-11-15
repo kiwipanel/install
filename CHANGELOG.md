@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.9.44 (2026-11-15)
+
+- feat: enforce storage limitation, phrase 2 drill done
+- feat: enforce storage limit - pharse 1 verified
+- feat: storage plan phrase 1
+- fixed: circleci test need systemd which is not available there
+- fixed: check space for importing sql dont work before there is backup
 ## v0.9.43 (2026-11-12)
 
 - Feat: remove the old database, let schemma.sql the source of truth

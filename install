@@ -624,6 +624,11 @@ function PreflightChecks() {
         fi
     done
 
+    # quota tools for plan 16's hard limits (a group quota per client);
+    # nothing is turned on by the installer.
+    command -v setquota >/dev/null 2>&1 || missing+=("quota")
+    command -v xfs_quota >/dev/null 2>&1 || missing+=("xfsprogs")
+
     # gpg: package name differs between distros
     if ! command -v gpg >/dev/null 2>&1; then
         if command -v apt >/dev/null 2>&1; then
