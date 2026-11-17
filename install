@@ -110,7 +110,7 @@ ReadOnlyCheck() {
         config) [[ -s "$root/config/kiwipanel.toml" ]] ;;
         panel)
             [[ -f "${KIWIPANEL_SERVICE_UNIT:-/etc/systemd/system/kiwipanel.service}" &&
-                -s "$root/meta/passcode" && -s "$root/meta/terminal_token" ]] &&
+                -s "$root/meta/passcode" ]] &&
                 systemctl is-active --quiet kiwipanel && systemctl is-active --quiet kiwipanel-agent ;;
         ols)
             [[ -d /usr/local/lsws ]] &&
@@ -625,9 +625,14 @@ function PreflightChecks() {
     done
 
     # quota tools for plan 16's hard limits (a group quota per client);
-    # nothing is turned on by the installer.
+    # nothing is turned on by the installer. xfs_quota only where an XFS
+    # filesystem is mounted: xfsprogs ships an initramfs hook, so on Debian
+    # (ext4, no xfsprogs) installing it rebuilt the initramfs, and on Debian 12
+    # that never ended (work/17_ssh_verify.md, V11 blocker).
     command -v setquota >/dev/null 2>&1 || missing+=("quota")
-    command -v xfs_quota >/dev/null 2>&1 || missing+=("xfsprogs")
+    if findmnt -rn -t xfs -o TARGET 2>/dev/null | grep -q . && ! command -v xfs_quota >/dev/null 2>&1; then
+        missing+=("xfsprogs")
+    fi
 
     # gpg: package name differs between distros
     if ! command -v gpg >/dev/null 2>&1; then
@@ -648,8 +653,8 @@ function PreflightChecks() {
     if [ ${#missing[@]} -gt 0 ]; then
         PrintInfo "==> Installing missing dependencies: ${missing[*]}"
         if command -v apt >/dev/null 2>&1; then
-            apt-get update -y
-            apt-get install -y "${missing[@]}"
+            apt-get update -y </dev/null
+            DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}" </dev/null
         elif command -v dnf >/dev/null 2>&1; then
             dnf install -y "${missing[@]}"
         elif command -v yum >/dev/null 2>&1; then
@@ -1654,33 +1659,33 @@ function MarkInstallationComplete() {
     chmod 640 "$marker"
 }
 
-#------------------------------------------------------------Generate terminal token for global terminal access
-# This token is required to access the global (root) terminal via web UI
-# SECURITY: We store SHA-256 hash of the token, not the plain text
-function GenerateTerminalToken() {
-    local META_DIR="/opt/kiwipanel/meta"
-    local TOKEN_FILE="$META_DIR/terminal_token"
-
-    mkdir -p "$META_DIR"
-
-    # Always generate a new unique token (don't reuse from package)
-    # Generate a secure random 32-character token
-    terminal_token=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
-
-    # Hash the token using SHA-256 before storing
-    # IMPORTANT: Use printf to avoid newline issues (echo -n behaves differently on some systems)
-    # The plain token is shown to user only once during install
-    local token_hash
-    token_hash=$(printf '%s' "$terminal_token" | sha256sum | cut -d' ' -f1)
-
-    printf '%s\n' "$token_hash" > "$TOKEN_FILE"
-
-    # Set ownership and permissions
-    # Token hash file should be readable by kiwipanel user (for web service)
-    chown kiwipanel:kiwisecure "$TOKEN_FILE"
-    chmod 640 "$TOKEN_FILE"
-
-    PrintGreen "✔ Terminal token generated (stored as hash)."
+#------------------------------------------------------------Generate the rescue token
+# The rescue token unlocks every root-level change of the panel (root's SSH
+# keys, the SSH settings, the firewall switch, the rescue terminal and file
+# manager): work/20_rescue_token_root_access.md. Its SHA-256 lives where only
+# root reads it; the agent checks it, never the panel. It is generated only
+# when the install has a terminal to show it on (never written to a log or a
+# file); otherwise the server stays without one until
+# `kiwipanel rescue-token rotate` is run in a root shell.
+function GenerateRescueToken() {
+    rescue_token=""
+    if [[ ! -t 1 ]]; then
+        PrintWarn "No terminal: no rescue token generated. Make one later with: kiwipanel rescue-token rotate"
+        return 0
+    fi
+    local dir="/var/lib/kiwipanel/rescue"
+    local file="$dir/token.sha256"
+    install -d -o root -g root -m 0700 "$dir"
+    # 32 random bytes, unpadded base64url (43 characters): never chosen.
+    rescue_token=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')
+    local token_hash tmp
+    token_hash=$(printf '%s' "$rescue_token" | sha256sum | cut -d' ' -f1)
+    tmp=$(mktemp "$dir/.token-XXXXXX")
+    chmod 0600 "$tmp"
+    printf '%s\n' "$token_hash" > "$tmp"
+    sync "$tmp" 2>/dev/null || sync
+    mv -f "$tmp" "$file"
+    PrintGreen "✔ Rescue token generated (stored as a hash only root can read)."
 }
 
 
@@ -2003,9 +2008,14 @@ function SuccessMessage() {
     echo ""
     echo "$(tput setaf 3)   ⚠️  IMPORTANT - Save these credentials now!$(tput sgr0)"
     echo ""
-    echo "   Rescue Token: ${terminal_token}"
-    echo "   (This token is shown ONLY ONCE. Use it at System > Terminal or System > File Manager to access the root server.)"
-    echo "   To rotate: kiwipanel terminal rotate"
+    if [[ -n "${rescue_token}" ]]; then
+        echo "   Rescue Token: ${rescue_token}"
+        echo "   (Shown ONLY ONCE. The panel asks for it before changing root's SSH keys, the SSH settings or the firewall,"
+        echo "    and for the rescue terminal and file manager.)"
+    else
+        echo "   Rescue Token: none yet (no terminal). Make one with: kiwipanel rescue-token rotate"
+    fi
+    echo "   To make a new one: kiwipanel rescue-token rotate"
     echo ""
     echo "   Database credentials are stored in root-only file: /etc/kiwipanel/secrets.env"
     echo ""
@@ -2032,7 +2042,7 @@ function InstallKiwipanel() {
     InstallWrapper
     DisableDefaultMotd
     GenerateThePasscode
-    GenerateTerminalToken
+    GenerateRescueToken
     InstallSystemdService
     InstallLoginBanner
 }
@@ -2334,7 +2344,6 @@ verify_panel() {
     ensure_file_exists "/etc/systemd/system/kiwipanel.service" || return 1
     ensure_file_exists "/usr/local/bin/kiwipanel" || return 1
     ensure_file_exists "/opt/kiwipanel/meta/passcode" || return 1
-    ensure_file_exists "/opt/kiwipanel/meta/terminal_token" || return 1
     ensure_service_active "kiwipanel" || return 1
     return 0
 }

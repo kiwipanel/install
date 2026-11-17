@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.9.45 (2026-11-17)
+
+- feat: update rescue token root, change location
+- refactor: clean up old way to rotate rescue token
+- feat: rescure-token now apply to SSH key also
+- fixed edge cases relating to enforce storage when server restart
+- fixed deleting users also remove files
+- fixed : error on CICD as the code takes out the port of CICD
+- feat: ssh key hardening
+- feat: remove option Reverse-Proxy if the plan does not include
+- feat: storage limit drill completed
 ## v0.9.44 (2026-11-15)
 
 - feat: enforce storage limitation, phrase 2 drill done
