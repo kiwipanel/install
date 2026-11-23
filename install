@@ -618,7 +618,10 @@ function PreflightChecks() {
     local missing=()
 
     # Check binary dependencies (note: gpg is handled separately below)
-    for cmd in curl wget unzip systemctl jq; do
+    # zstd: website backups are zstd-compressed where it exists, and a
+    # website imported from another server (plan 23A) may be one; EL9 has
+    # only libzstd until the package is added.
+    for cmd in curl wget unzip systemctl jq zstd; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             missing+=("$cmd")
         fi
@@ -1667,9 +1670,19 @@ function MarkInstallationComplete() {
 # when the install has a terminal to show it on (never written to a log or a
 # file); otherwise the server stays without one until
 # `kiwipanel rescue-token rotate` is run in a root shell.
+# CanShowSecrets: the install can show a secret on its terminal. Secrets go
+# to /dev/tty, never to standard output: under `| tee install.log` or
+# cloud-init (/var/log/cloud-init-output.log) standard output is a file on
+# this server (plan 22 4.7). With no terminal to open (cloud-init,
+# `ssh host 'bash install'`, `</dev/null` with no session) nothing secret is
+# made to be shown.
+function CanShowSecrets() {
+    { : >/dev/tty; } 2>/dev/null
+}
+
 function GenerateRescueToken() {
     rescue_token=""
-    if [[ ! -t 1 ]]; then
+    if ! CanShowSecrets; then
         PrintWarn "No terminal: no rescue token generated. Make one later with: kiwipanel rescue-token rotate"
         return 0
     fi
@@ -1992,6 +2005,57 @@ EOF
 }
 
 
+#------------------------------------------------------------Make the backup decryption key
+# The key that decrypts this server's off-server backups (plan 22 4.7): the
+# agent makes it and keeps only its public half, unconfirmed; it is shown
+# once below, on the terminal, and confirmed on Backups > Off-server copies
+# before any place copies. Never written to a file or a log; no terminal, no
+# key (the page then makes one).
+backup_key=""
+backup_key_ends=""
+function GenerateBackupKey() {
+    backup_key=""
+    backup_key_ends=""
+    if ! CanShowSecrets; then
+        PrintWarn "No terminal: no backup decryption key made. Make one on Backups > Off-server copies."
+        return 0
+    fi
+    local out
+    if ! out=$(kiwipanel offsite backup-key --install 2>/dev/null); then
+        PrintWarn "The backup decryption key could not be made now. Make one on Backups > Off-server copies."
+        return 0
+    fi
+    backup_key=$(printf '%s\n' "$out" | sed -n 's/^key=//p')
+    backup_key_ends=$(printf '%s\n' "$out" | sed -n 's/^ends=//p')
+    out=""
+}
+
+# ShowSecrets prints what is shown once. Its caller sends it to /dev/tty.
+function ShowSecrets() {
+    echo "   Login at : https://$IPADDRESS:$KIWIPANEL_PORT/$kiwipanel_passcode"
+    echo "   (For a trusted address without a port, set one in Settings > Server > Identity > Panel address.)"
+    echo "   User:     ${admin_user}"
+    echo "   Password: ${admin_pass}"
+    echo ""
+    echo "$(tput setaf 3)   ⚠️  Save these now. Each is shown only once and is not kept on this server.$(tput sgr0)"
+    echo ""
+    if [[ -n "${rescue_token}" ]]; then
+        echo "   Rescue token:           ${rescue_token}"
+        echo "                           The panel asks for it before root-level changes (SSH keys and settings,"
+        echo "                           the firewall, the rescue terminal and file manager)."
+    else
+        echo "   Rescue token:           none yet. Make one with: kiwipanel rescue-token rotate"
+    fi
+    echo ""
+    if [[ -n "${backup_key}" ]]; then
+        echo "   Backup decryption key:  ${backup_key}"
+        echo "                           Opens this server's encrypted off-server backups. Its public key ends …${backup_key_ends}."
+        echo "                           Confirm it on Backups > Off-server copies before adding a place."
+    else
+        echo "   Backup decryption key:  none yet. Make one on Backups > Off-server copies."
+    fi
+}
+
 function SuccessMessage() {
     PrintGreen "✔ KiwiPanel has been successfully installed on your VPS!"
     kiwipanel_d_end_time=$(date +%s)
@@ -1999,23 +2063,19 @@ function SuccessMessage() {
     printf " \n"
     echo "$(tput setaf 2)Total time installed: ${elapsed} seconds.$(tput sgr0)"
     printf " \n"
+    GenerateBackupKey
     echo "$(tput setaf 2)================================Install KiwiPanel Done!==============================$(tput sgr0)"
     echo ""
-    echo "   Login at : https://$IPADDRESS:$KIWIPANEL_PORT/$kiwipanel_passcode"
-    echo "   (For a trusted address without a port, set one in Settings > Server > Identity > Panel address.)"
-    echo "   User:     ${admin_user}"
-    echo "   Password: ${admin_pass}"
-    echo ""
-    echo "$(tput setaf 3)   ⚠️  IMPORTANT - Save these credentials now!$(tput sgr0)"
-    echo ""
-    if [[ -n "${rescue_token}" ]]; then
-        echo "   Rescue Token: ${rescue_token}"
-        echo "   (Shown ONLY ONCE. The panel asks for it before changing root's SSH keys, the SSH settings or the firewall,"
-        echo "    and for the rescue terminal and file manager.)"
+    if CanShowSecrets; then
+        ShowSecrets >/dev/tty
     else
-        echo "   Rescue Token: none yet (no terminal). Make one with: kiwipanel rescue-token rotate"
+        echo "   No terminal: the login address, the password and the keys are not printed (this output may be kept in a log)."
+        echo "   The login address's passcode: kiwipanel passcode show"
+        echo "   A new admin password:         kiwipanel password"
+        echo "   The rescue token:             kiwipanel rescue-token rotate"
+        echo "   The backup decryption key:    on Backups > Off-server copies"
     fi
-    echo "   To make a new one: kiwipanel rescue-token rotate"
+    backup_key=""
     echo ""
     echo "   Database credentials are stored in root-only file: /etc/kiwipanel/secrets.env"
     echo ""

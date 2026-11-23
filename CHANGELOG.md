@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.9.48 (2026-11-23)
+
+- feat: replace repo when downloadig mariadb running on github action
 ## v0.9.45 (2026-11-17)
 
 - feat: update rescue token root, change location
