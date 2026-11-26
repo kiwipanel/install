@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.9.49 (2026-11-26)
+
+- fixed: test case regarding logrotate on github action when it does not run as root
+- feat: setting SETlinux in permissive mode by defaul on Alma/Rocky
+- feat: import huge website ~ 10 GB tested, worked
+- feat: import whole VPS done, tested
+- feat: migrate -> import single or multiple sites from remote server
 ## v0.9.48 (2026-11-23)
 
 - feat: replace repo when downloadig mariadb running on github action

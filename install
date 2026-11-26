@@ -19,7 +19,7 @@
 # curl -sLO https://raw.githubusercontent.com/kiwipanel/install/main/install && chmod +x install && sudo bash install
 
 # Parse before root checks, traps, logging, locks or helper loading.
-INSTALL_STEPS=(base_system swap firewall ssl mariadb config panel ols finalize)
+INSTALL_STEPS=(swap base_system firewall ssl mariadb config panel ols finalize)
 VERIFY_ONLY=0
 READINESS_CHECK=0
 STEPS_FILTER=""
@@ -76,6 +76,22 @@ for step in "${INSTALL_STEPS[@]}"; do
     StepSelected "$step" || FULL_INSTALL=0
 done
 
+# The swap step passes with swap from any source (KiwiPanel's /swapfile, a
+# partition, or a container's host: LXC and OpenVZ report the host's swap in
+# /proc/meminfo, never in swapon --show) or, where swap cannot be had (a
+# container that refuses swapon), with this much RAM: dnf alone needs about
+# 300 MB, then MariaDB, OpenLiteSpeed, PHP, the panel and the agent. A "1 GB"
+# KVM plan shows about 960 MB. Read from /proc/meminfo, not free: the swap
+# step runs before base_system installs procps (AlmaLinux images may lack it).
+# KIWIPANEL_MEMINFO exists for the tests only.
+SWAP_FREE_MIN_RAM_MB=960
+function SwapOrEnoughRam() {
+    local ram_kb swap_kb
+    read -r ram_kb swap_kb < <(awk '/^MemTotal:/ {m=$2} /^SwapTotal:/ {s=$2} END {print m+0, s+0}' "${KIWIPANEL_MEMINFO:-/proc/meminfo}" 2>/dev/null) || return 1
+    [[ "$ram_kb" =~ ^[0-9]+$ && "$swap_kb" =~ ^[0-9]+$ ]] || return 1
+    (( swap_kb > 0 || ram_kb >= SWAP_FREE_MIN_RAM_MB * 1024 ))
+}
+
 # Dedicated observational probes. Never source release helpers here: even their
 # health checks can log, create credential files, or invoke application startup.
 # No SQL/HTTP requests (which can cause server-side logs), repairs or service actions.
@@ -84,11 +100,7 @@ ReadOnlyCheck() {
     local secrets="${KIWIPANEL_SECRETS_FILE:-/etc/kiwipanel/secrets.env}"
     case "$1" in
         base_system) systemctl is-active --quiet cron || systemctl is-active --quiet crond ;;
-        swap)
-            swapon --show | grep -q '/' && return 0
-            local ram
-            ram=$(free -m | awk '/Mem:/ {print $2}') || return 1
-            [[ "$ram" =~ ^[0-9]+$ ]] && (( ram > 4096 )) ;;
+        swap) SwapOrEnoughRam ;;
         firewall)
             # Inspect kernel rules directly: ufw status can initialize its log.
             if systemctl is-active --quiet firewalld; then
@@ -147,7 +159,7 @@ ValidateStepPrerequisites() {
             firewall|mariadb|ols) dependencies="base_system" ;;
             config) dependencies="base_system mariadb" ;;
             panel) dependencies="base_system ssl mariadb config" ;;
-            finalize) dependencies="base_system swap firewall ssl mariadb config panel ols" ;;
+            finalize) dependencies="swap base_system firewall ssl mariadb config panel ols" ;;
             *) dependencies="" ;;
         esac
         for dependency in $dependencies; do
@@ -495,7 +507,7 @@ function ClassifyKiwipanelInstallation() {
     local completed=0
     local started=0
     local unknown=0
-    local known_steps=" base_system swap firewall ssl mariadb config panel ols finalize "
+    local known_steps=" swap base_system firewall ssl mariadb config panel ols finalize "
 
     if [[ -e "$state_dir" || -L "$state_dir" ]]; then
         if ! IsTrustedInstallStateDirectory; then
@@ -1884,7 +1896,24 @@ function Cleanup() {
 }
 
 
-function DisableSelinuxRuntime() {
+# /etc/selinux/config, a variable only so the installer test can point it at
+# a temporary file.
+SELINUX_CONFIG_FILE="${SELINUX_CONFIG_FILE:-/etc/selinux/config}"
+
+# KiwiPanel ships no SELinux policy, and under Enforcing it does not work: the
+# first agent restart after a reboot fails (233/RUNTIME_DIRECTORY on units
+# older than 2026-11-26) and takes the panel down, and website terminals do not
+# open (208/STDIN, init_t on devpts_t; AlmaLinux 9, 2026-11-25,
+# work/26_move_without_a_bucket.md §3.3). So SELinux goes to Permissive, now
+# (setenforce 0) and for every later boot (SELINUX=permissive in the config).
+# Until 2026-11-26 only the runtime half ran (the config line was dropped in a
+# refactor on 2025-12-29), so every EL server came back Enforcing after its
+# first reboot. Permissive, never disabled: nothing is blocked, denials are
+# still logged (what a policy would be written from), files keep their labels
+# (Enforcing later needs no relabel), and on EL9 SELINUX=disabled in the
+# config no longer disables SELinux anyway (Red Hat: kernel argument selinux=0).
+# A server where SELinux is disabled is left as it is.
+function SetSelinuxPermissive() {
     # Only applies to systems with SELinux tools
     if ! command -v getenforce >/dev/null 2>&1; then
         return 0
@@ -1894,17 +1923,32 @@ function DisableSelinuxRuntime() {
     mode="$(getenforce 2>/dev/null || echo Disabled)"
 
     case "$mode" in
-        Enforcing|Permissive)
-            PrintWarn "Disabling SELinux enforcement (runtime). Consider configuring SELinux policies for production."
-            setenforce 0 || true
+        Enforcing)
+            PrintWarn "==> SELinux is Enforcing; switching it to Permissive (KiwiPanel ships no SELinux policy)"
+            setenforce 0 || PrintWarn "setenforce 0 failed; SELinux stays Enforcing until it is set by hand"
+            ;;
+        Permissive)
+            PrintInfo "==> SELinux is Permissive"
             ;;
         Disabled)
-            PrintInfo "==> SELinux already disabled"
+            PrintInfo "==> SELinux is disabled; left as it is"
+            return 0
             ;;
         *)
-            PrintWarn "Unknown SELinux mode: $mode (ignored)"
+            PrintWarn "Unknown SELinux mode: $mode (left as it is)"
+            return 0
             ;;
     esac
+
+    # The boot-time half: only an active SELINUX=enforcing line is changed;
+    # permissive, disabled, comments and SELINUXTYPE are left alone.
+    if [[ -f "$SELINUX_CONFIG_FILE" ]] && grep -Eq '^[[:space:]]*SELINUX=enforcing[[:space:]]*$' "$SELINUX_CONFIG_FILE"; then
+        if sed -i --follow-symlinks -E 's/^[[:space:]]*SELINUX=enforcing[[:space:]]*$/SELINUX=permissive/' "$SELINUX_CONFIG_FILE"; then
+            PrintWarn "==> SELinux set to permissive in $SELINUX_CONFIG_FILE, so it stays Permissive after a reboot (denials are still logged in /var/log/audit/audit.log)"
+        else
+            PrintWarn "Could not write SELINUX=permissive to $SELINUX_CONFIG_FILE: SELinux will be Enforcing again after a reboot, and KiwiPanel does not work under Enforcing"
+        fi
+    fi
 
     return 0
 }
@@ -2299,18 +2343,7 @@ verify_base_system() {
 # Step 6: Swap
 step_swap() { CreateSwap; }
 
-verify_swap() {
-    # Either swap is active OR system has plenty of RAM (>4GB)
-    if swapon --show 2>/dev/null | grep -q '/'; then
-        return 0
-    fi
-    local ram_mb
-    ram_mb=$(free -m | awk '/Mem:/ {print $2}')
-    if (( ram_mb > 4096 )); then
-        return 0  # enough RAM, swap optional
-    fi
-    return 1
-}
+verify_swap() { SwapOrEnoughRam; }
 
 # Step 7: Firewall
 step_firewall() {
@@ -2467,8 +2500,10 @@ function main() {
     CheckConditionBeforeInstall
     EnsureInstallStateDirectory
 
-    run_step "base_system"  step_base_system  verify_base_system
+    # Swap first: dnf alone needs about 300 MB, and on a 512 MB VPS without
+    # swap the kernel killed it in base_system (AlmaLinux 9.9, 2026-11-24).
     run_step "swap"         step_swap         verify_swap
+    run_step "base_system"  step_base_system  verify_base_system
     run_step "firewall"     step_firewall     verify_firewall
     run_step "ssl"          step_ssl          verify_ssl
     run_step "mariadb"      step_mariadb      verify_mariadb
